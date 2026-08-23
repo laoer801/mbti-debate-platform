@@ -41,6 +41,10 @@ server/secret.js
 *.env
 .env.*
 !.env.example
+*.keystore
+*.jks
+*.p12
+*.key
 
 # ============ 交付物（体积大且由 CI/手动构建生成） ============
 *.exe
