@@ -1,0 +1,68 @@
+import { Opinion } from '../types'
+
+export const opinions: Opinion[] = [
+  {
+    id: 'o1',
+    title: 'AI代替人类创作，艺术还有灵魂吗？',
+    tags: ['科技', '艺术', '哲学'],
+    sideA: 'AI作品也有艺术价值',
+    sideB: '只有人类创作才是真正的艺术',
+    createdAt: Date.now() - 86400000,
+    votesA: 4231,
+    votesB: 6753,
+    hot: 98,
+    personalityStances: [
+      { typeId: 'INFP', side: 'B', reason: '艺术的本质是人类情感的投射，AI永远无法理解眼泪的咸味' },
+      { typeId: 'ENTP', side: 'A', reason: '艺术的定义在不断扩展，AI只是最新的画笔' },
+      { typeId: 'ISTJ', side: 'B', reason: '按照现有法律框架，AI生成物不符合著作权主体要求' },
+      { typeId: 'ENFP', side: 'A', reason: '工具不影响创作本质，相机没有杀死绘画' },
+    ],
+  },
+  {
+    id: 'o2',
+    title: '社恐是天生的还是后天养成的？',
+    tags: ['心理', '社交', '成长'],
+    sideA: '主要是天生性格',
+    sideB: '主要是后天环境',
+    createdAt: Date.now() - 172800000,
+    votesA: 5120,
+    votesB: 4892,
+    hot: 85,
+    personalityStances: [
+      { typeId: 'INTJ', side: 'A', reason: '神经科学研究表明内向/外向有显著的遗传基础' },
+      { typeId: 'ESFJ', side: 'B', reason: '我见过太多人在温暖的环境里从社恐变成社牛' },
+      { typeId: 'INTP', side: 'A', reason: '双胞胎研究显示性格特质约50%由基因决定', changedMind: false },
+    ],
+  },
+  {
+    id: 'o3',
+    title: '婚姻制度会在未来消失吗？',
+    tags: ['社会', '情感', '未来'],
+    sideA: '会逐渐消失',
+    sideB: '会转型但不会消失',
+    createdAt: Date.now() - 259200000,
+    votesA: 3421,
+    votesB: 8102,
+    hot: 72,
+    personalityStances: [
+      { typeId: 'ENTJ', side: 'A', reason: '任何制度都有生命周期，婚姻也不例外' },
+      { typeId: 'ISFJ', side: 'B', reason: '人类对稳定亲密关系的需求是永恒的' },
+    ],
+  },
+  {
+    id: 'o4',
+    title: '躺平是一种智慧还是逃避？',
+    tags: ['生活方式', '哲学', '职场'],
+    sideA: '是主动选择的智慧',
+    sideB: '是对现实的逃避',
+    createdAt: Date.now() - 345600000,
+    votesA: 6723,
+    votesB: 5541,
+    hot: 91,
+    personalityStances: [
+      { typeId: 'INFP', side: 'A', reason: '人生不是只有一条赛道，慢下来才是真正看清自己' },
+      { typeId: 'ESTJ', side: 'B', reason: '不奋斗的人生和咸鱼有什么区别？' },
+      { typeId: 'ENFP', side: 'A', reason: '但躺平不等于什么都不做，是换一种节奏生活' },
+    ],
+  },
+]

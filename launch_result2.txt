@@ -1,0 +1,25 @@
+﻿PID: 28272
+HasExited: True
+ExitCode: 1
+Matching procs: 0
+Windowed procs: 19
+  PID=33840 Name=360se Title=WorkBuddy - 个人中心 - 360安全浏览器 16.3
+  PID=16536 Name=ApplicationFrameHost Title=设置
+  PID=464 Name=explorer Title=2026-08 - 文件资源管理器
+  PID=2072 Name=explorer Title=2026-08 - 文件资源管理器
+  PID=2536 Name=explorer Title=沈州北钢 - 文件资源管理器
+  PID=6504 Name=explorer Title=2026-08 - 文件资源管理器
+  PID=9360 Name=explorer Title=此电脑 - 文件资源管理器
+  PID=9628 Name=explorer Title=应交税费、税金及附加练习作业 - 文件资源管理器
+  PID=19948 Name=explorer Title=此电脑 - 文件资源管理器
+  PID=25560 Name=explorer Title=2026-08 - 文件资源管理器
+  PID=29416 Name=explorer Title=2026-08 - 文件资源管理器
+  PID=32564 Name=explorer Title=主营业务收入 - 文件资源管理器
+  PID=38876 Name=explorer Title=此电脑 - 文件资源管理器
+  PID=29176 Name=msedge Title=205201621@qq.com's Project | 205201621@qq.com's Org | Supabase 和另外 2 个页面 - 个人 - Microsoft​ Edge
+  PID=5280 Name=SysCleanPro Title=360清理Pro
+  PID=9248 Name=SystemSettings Title=设置
+  PID=11888 Name=TextInputHost Title=Windows 输入体验
+  PID=10708 Name=WorkBuddy Title=WorkBuddy
+  PID=23156 Name=wps Title=[只读]全链路智能学习系统——基于大模型智能体的计算机专业学习生态(1).pptx - WPS Office
+

@@ -1,0 +1,17 @@
+{
+  "name": "MBTI 人格辩论平台",
+  "short_name": "MBTI辩论",
+  "description": "16种MBTI人格在线辩论、社交匹配、知识库驱动的智能辩论平台",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#6c5ce7",
+  "orientation": "any",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ],
+  "categories": ["social", "education", "entertainment"],
+  "lang": "zh-CN",
+  "dir": "ltr"
+}

@@ -1,0 +1,42 @@
+{
+  "name": "mbti-debate-client",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "test:arena": "esbuild scripts/test-arena-v26.ts --bundle --platform=node --format=cjs --outfile=scripts/test-arena-v26.bundle.cjs && node scripts/test-arena-v26.bundle.cjs",
+    "test:arena:v28": "esbuild scripts/test-arena-v28.ts --bundle --platform=node --format=cjs --outfile=scripts/test-arena-v28.bundle.cjs && node scripts/test-arena-v28.bundle.cjs",
+    "test:arena:v30": "esbuild scripts/test-arena-v30.ts --bundle --platform=node --format=cjs --outfile=scripts/test-arena-v30.bundle.cjs && node scripts/test-arena-v30.bundle.cjs",
+    "test:sources": "node scripts/test-sources-v27.1.bundle.cjs",
+    "test:arena:v31": "esbuild scripts/test-arena-v31.ts --bundle --platform=node --format=cjs --outfile=scripts/test-arena-v31.bundle.cjs && node scripts/test-arena-v31.bundle.cjs",
+    "test:rag:v32": "esbuild scripts/test-rag-v32.ts --bundle --platform=node --format=cjs --outfile=scripts/test-rag-v32.bundle.cjs && node scripts/test-rag-v32.bundle.cjs",
+    "test:report:v33": "esbuild scripts/test-report-v33.ts --bundle --platform=node --format=cjs --outfile=scripts/test-report-v33.bundle.cjs && node scripts/test-report-v33.bundle.cjs",
+    "test:video:v34": "esbuild scripts/test-video-v34.ts --bundle --platform=node --format=cjs --outfile=scripts/test-video-v34.bundle.cjs && node scripts/test-video-v34.bundle.cjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "clsx": "^2.1.0",
+    "framer-motion": "^11.0.0",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.400.0",
+    "pdfjs-dist": "^6.2.108",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "autoprefixer": "^10.4.0",
+    "postcss": "^8.4.0",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0"
+  }
+}

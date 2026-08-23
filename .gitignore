@@ -1,0 +1,96 @@
+# ============ 依赖与构建产物 ============
+node_modules/
+client/dist/
+client/dist-new*/
+client/dist-new_old_*/
+client/android/build/
+client/android/app/build/
+client/android/.gradle/
+client/android/capacitor-cordova-android-plugins/
+client/android/app/src/main/assets/public/
+client/android/app/src/main/res/xml/capacitor*
+client/tsconfig.tsbuildinfo
+desktop/release/
+desktop/win-unpacked/
+desktop/release_portable_done/
+build/
+debug/
+android-toolchain/
+artifacts/
+_electron/
+electron-app/
+nwjs/
+locales/
+chrome_*.pak
+ffmpeg.dll
+icudtl.dat
+libEGL.dll
+libGLESv2.dll
+resources/
+*.log
+vite.config.ts.timestamp-*.mjs
+vite-*.log
+
+# 绕行模式改名残留的旧构建目录（*_old_*）
+*_old_*/
+
+# ============ 敏感数据（绝不提交） ============
+server/data/
+server/certs/
+server/secret.js
+*.env
+.env.*
+!.env.example
+
+# ============ 交付物（体积大且由 CI/手动构建生成） ============
+*.exe
+*.apk
+*.blockmap
+*.dll
+
+# ============ 本地调试残留 ============
+_桌面旧版备份_*/
+_桌*旧版备份_*/
+trash/
+launch-*.bat
+*_result.txt
+*_test.txt
+check_*.txt
+cleanup*.txt
+disk_space.txt
+electron_*.txt
+env_check.txt
+env_test*.txt
+final_test.txt
+gpu_fix_result.txt
+gradle_build.log
+java_check.txt
+java_procs*.txt
+kb_test_result.txt
+nofix_result*.txt
+ov_cleanup.txt
+debug.log
+api_test_result.txt
+gradle-v*.log
+electron-*.log
+build_*.log
+desktop-build-v*.log
+server-*.log
+
+# electron 运行时解包残留
+vk_swiftshader_icd.json
+v8_context_snapshot.bin
+snapshot_blob.bin
+resources.pak
+uninstallerIcon.ico
+
+# 旧验证截图与过程记录
+verify-v*.png
+test-arena-v*.md
+
+# ============ OS / IDE ============
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo

@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DEBATESPHERE · 人格观测站 — PERSONA OBSERVATORY</title>
+<style>
+  :root {
+    --ink: #e8e8e8;
+    --ink-2: #a0a0a0;
+    --ink-3: #5c5c5c;
+    --line: rgba(255,255,255,.14);
+    --line-soft: rgba(255,255,255,.07);
+    --bg: #000000;
+    --panel: rgba(255,255,255,.02);
+    --accent: #7c88f0;
+    --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+    --sans: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { background: var(--bg); }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 13px;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  /* 扫描线覆层 */
+  body::after {
+    content: "";
+    position: fixed; inset: 0;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,.018) 0 1px, transparent 1px 3px);
+    pointer-events: none; z-index: 90;
+  }
+  /* 底网格 */
+  .bg-grid {
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px);
+    background-size: 72px 72px;
+    mask-image: radial-gradient(120% 90% at 50% 0%, #000 40%, transparent 100%);
+    -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 40%, transparent 100%);
+  }
+  .wrap { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: 0 28px 0; }
+
+  .mono { font-family: var(--mono); }
+  .tag { font-family: var(--mono); font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--ink-3); }
+  .tag b { color: var(--ink-2); font-weight: 400; }
+
+  /* ============ 顶部 HUD bar ============ */
+  .topbar {
+    display: flex; align-items: center; gap: 20px;
+    padding: 14px 0 12px;
+    border-bottom: 1px solid var(--line);
+    position: relative;
+  }
+  .topbar::before, .topbar::after {
+    content: ""; position: absolute; bottom: -1px; width: 14px; height: 14px;
+    border: 1px solid var(--line);
+  }
+  .topbar::before { left: -1px; border-right: none; border-top: none; }
+  .topbar::after { right: -1px; border-left: none; border-top: none; }
+  .logo { display: flex; align-items: baseline; gap: 10px; }
+  .logo .mark {
+    width: 10px; height: 10px; border: 1.5px solid var(--ink); border-radius: 50%;
+    display: inline-block; transform: translateY(1px); position: relative;
+  }
+  .logo .mark::after { content: ""; position: absolute; inset: 2px; background: var(--accent); border-radius: 50%; }
+  .logo .name { font-family: var(--mono); font-size: 13px; letter-spacing: .22em; font-weight: 600; }
+  .logo .sub { font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: var(--ink-3); }
+  nav.main { display: flex; gap: 2px; margin-left: 24px; }
+  nav.main a {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .2em; color: var(--ink-3);
+    text-decoration: none; padding: 6px 14px; border: 1px solid transparent; transition: all .2s;
+  }
+  nav.main a:hover { color: var(--ink); }
+  nav.main a.on { color: var(--ink); border-color: var(--line); background: var(--panel); }
+  .top-right { margin-left: auto; display: flex; align-items: center; gap: 18px; }
+  .clock { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; color: var(--ink-2); text-align: right; line-height: 1.4; }
+  .clock small { display: block; font-size: 9px; color: var(--ink-3); letter-spacing: .2em; }
+  .live-dot { display: flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: var(--ink-2); }
+  .live-dot i { width: 6px; height: 6px; background: var(--accent); border-radius: 50%; animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+
+  /* ============ Hero ============ */
+  .hero {
+    display: grid; grid-template-columns: 1fr auto; align-items: end;
+    padding: 44px 0 30px; border-bottom: 1px solid var(--line-soft); position: relative;
+  }
+  .hero .eyebrow { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .hero .eyebrow .hash { color: var(--ink-3); }
+  .hero .eyebrow .txt { font-size: 11px; letter-spacing: .3em; color: var(--ink-2); }
+  .hero h1 {
+    font-size: clamp(64px, 9vw, 128px); line-height: .92; letter-spacing: -.01em;
+    font-weight: 800; font-family: var(--mono); color: var(--ink);
+  }
+  .hero h1 .dot { color: var(--accent); }
+  .hero .zh {
+    margin-top: 16px; font-size: 20px; font-weight: 600; letter-spacing: .5em; color: var(--ink-2);
+  }
+  .hero .slogan { margin-top: 8px; font-family: var(--mono); font-size: 10px; letter-spacing: .3em; color: var(--ink-3); }
+  .hero .side { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; padding-bottom: 8px; }
+  .radar { width: 148px; height: 148px; position: relative; }
+  .radar svg { width: 100%; height: 100%; }
+  .radar .sweep { transform-origin: 50% 50%; animation: sweep 5s linear infinite; }
+  @keyframes sweep { to { transform: rotate(360deg); } }
+  .hero-meta { font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: var(--ink-3); text-align: right; line-height: 1.9; }
+  .hero-meta b { color: var(--ink-2); font-weight: 400; }
+  .crosshair { position: absolute; width: 15px; height: 15px; opacity: .5; }
+  .crosshair::before, .crosshair::after { content: ""; position: absolute; background: var(--ink-3); }
+  .crosshair::before { left: 7px; top: 0; width: 1px; height: 15px; }
+  .crosshair::after { top: 7px; left: 0; width: 15px; height: 1px; }
+
+  /* ============ 分格控制台 ============ */
+  .console {
+    display: grid; grid-template-columns: 300px 1fr 320px; gap: 1px;
+    background: var(--line-soft);
+    border: 1px solid var(--line);
+    margin-top: 28px;
+    position: relative;
+  }
+  .console > section { background: var(--bg); padding: 20px 22px; min-height: 480px; }
+  .panel-h {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 12px; margin-bottom: 16px;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--mono); font-size: 10px; letter-spacing: .22em; color: var(--ink-2);
+  }
+  .panel-h .idx { color: var(--ink-3); }
+  .stat-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
+  .stat-row .ic { width: 14px; height: 14px; flex: none; color: var(--ink-3); }
+  .stat-row .lb { font-family: var(--mono); font-size: 10px; letter-spacing: .16em; color: var(--ink-2); width: 74px; flex: none; }
+  .stat-row .bar { flex: 1; height: 2px; background: rgba(255,255,255,.08); position: relative; }
+  .stat-row .bar i { position: absolute; inset: 0 auto 0 0; background: var(--ink); }
+  .stat-row .bar i.hi { background: var(--accent); }
+  .stat-row .val { font-family: var(--mono); font-size: 10px; color: var(--ink-2); width: 36px; text-align: right; }
+  .sys-normal {
+    margin-top: 14px; display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 9px; letter-spacing: .22em; color: var(--ink-2);
+    border-top: 1px dashed var(--line); padding-top: 12px;
+  }
+  .sys-normal i { width: 5px; height: 5px; background: var(--accent); border-radius: 50%; animation: breathe 1.6s infinite; }
+
+  .env-list { margin-top: 22px; }
+  .env-list .env-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+  .env-row .k { font-family: var(--mono); font-size: 10px; letter-spacing: .16em; color: var(--ink-3); }
+  .env-row .v { font-family: var(--mono); font-size: 11px; color: var(--ink); }
+
+  .notif { margin-top: 22px; }
+  .notif .n-row { display: flex; gap: 12px; padding: 7px 0; font-size: 11px; color: var(--ink-2); }
+  .n-row .t { font-family: var(--mono); font-size: 10px; color: var(--ink-3); flex: none; }
+  .n-row:hover { color: var(--ink); }
+  .view-all { margin-top: 12px; font-family: var(--mono); font-size: 9px; letter-spacing: .22em; color: var(--ink-3); }
+
+  /* 中央星球区 */
+  .stage { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; overflow: hidden; }
+  .stage .planet-id { position: absolute; top: 20px; left: 22px; }
+  .stage .coords { position: absolute; top: 20px; right: 22px; text-align: right; }
+  .stage .planet-id .tag, .stage .coords .tag { display: block; line-height: 2; }
+  .stage .coords .tag b { color: var(--ink); }
+  #globe { display: block; }
+  .stage .orbit-caption {
+    position: absolute; bottom: 46px; left: 22px; font-family: var(--mono);
+    font-size: 9px; letter-spacing: .22em; color: var(--ink-3); line-height: 2;
+  }
+  .stage .dist { position: absolute; bottom: 46px; right: 22px; text-align: right; font-family: var(--mono); font-size: 9px; letter-spacing: .22em; color: var(--ink-3); line-height: 2; }
+  .stage .dist b { display: block; color: var(--ink); font-size: 12px; font-weight: 400; }
+  .stage .dots-nav { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; }
+  .dots-nav i { width: 4px; height: 4px; background: rgba(255,255,255,.25); border-radius: 50%; }
+  .dots-nav i.on { background: var(--ink); }
+  .stage .frame-corner { position: absolute; width: 26px; height: 26px; border: 1px solid var(--line); }
+  .fc-tl { top: 54px; left: 22px; border-right: none; border-bottom: none; }
+  .fc-tr { top: 54px; right: 22px; border-left: none; border-bottom: none; }
+  .fc-bl { bottom: 74px; left: 22px; border-right: none; border-top: none; }
+  .fc-br { bottom: 74px; right: 22px; border-left: none; border-top: none; }
+
+  /* 右栏 */
+  .chart-box { border: 1px solid var(--line-soft); padding: 12px 12px 6px; margin-bottom: 18px; position: relative; }
+  .chart-box .ch-h { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: var(--ink-3); margin-bottom: 8px; }
+  .chart-box .ch-h .live { color: var(--accent); display: flex; align-items: center; gap: 6px; }
+  .chart-box .ch-h .live i { width: 5px; height: 5px; background: var(--accent); border-radius: 50%; animation: breathe 1.6s infinite; }
+  .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); margin-bottom: 18px; }
+  .metrics .m { background: var(--bg); padding: 12px 14px; }
+  .metrics .m .k { font-family: var(--mono); font-size: 9px; letter-spacing: .18em; color: var(--ink-3); }
+  .metrics .m .v { font-family: var(--mono); font-size: 20px; color: var(--ink); margin-top: 2px; }
+  .metrics .m .v small { font-size: 10px; color: var(--ink-3); }
+  .ring-row { display: flex; align-items: center; gap: 16px; margin-bottom: 18px; }
+  .ring { width: 84px; height: 84px; position: relative; flex: none; }
+  .ring svg { transform: rotate(-90deg); }
+  .ring .rv { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 16px; }
+  .ring-sub { font-family: var(--mono); font-size: 9px; letter-spacing: .18em; color: var(--ink-3); line-height: 2; }
+  .ring-sub b { color: var(--ink-2); font-weight: 400; }
+  .quick { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
+  .quick a {
+    background: var(--bg); padding: 14px 4px 10px; text-align: center; text-decoration: none;
+    color: var(--ink-2); transition: all .2s;
+  }
+  .quick a:hover { background: rgba(255,255,255,.05); color: var(--ink); }
+  .quick a svg { width: 18px; height: 18px; display: block; margin: 0 auto 7px; }
+  .quick a span { font-family: var(--mono); font-size: 8px; letter-spacing: .18em; }
+
+  /* ============ 编号分格区 ============ */
+  .block { margin-top: 56px; position: relative; }
+  .block-h { display: flex; align-items: baseline; gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--line); margin-bottom: 22px; position: relative; }
+  .block-h::after { content: "+"; position: absolute; right: 0; top: -6px; font-family: var(--mono); color: var(--ink-3); font-size: 14px; }
+  .block-h .no { font-family: var(--mono); font-size: 26px; color: var(--ink); font-weight: 600; }
+  .block-h .tt { font-size: 15px; font-weight: 600; letter-spacing: .12em; }
+  .block-h .en { font-family: var(--mono); font-size: 10px; letter-spacing: .22em; color: var(--ink-3); margin-left: auto; }
+
+  /* 人格矩阵 */
+  .pgroup { margin-bottom: 26px; }
+  .pgroup-h { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  .pgroup-h .code {
+    font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: .1em;
+    border: 1px solid var(--line); padding: 3px 10px;
+  }
+  .pgroup-h .zh { font-size: 13px; font-weight: 600; }
+  .pgroup-h .en { font-family: var(--mono); font-size: 9px; letter-spacing: .22em; color: var(--ink-3); }
+  .pgroup-h .line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
+  .pgroup-h .cnt { font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: var(--ink-3); }
+  .pgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
+  .pcard { background: var(--bg); padding: 18px 18px 14px; position: relative; transition: background .25s; cursor: crosshair; }
+  .pcard:hover { background: rgba(255,255,255,.045); }
+  .pcard:hover .pcode { color: var(--accent); }
+  .pcard .pidx { position: absolute; top: 10px; right: 12px; font-family: var(--mono); font-size: 8px; letter-spacing: .18em; color: var(--ink-3); }
+  .pcard .pcode { font-family: var(--mono); font-size: 24px; font-weight: 700; letter-spacing: .04em; transition: color .25s; }
+  .pcard .pname { margin-top: 6px; font-size: 12px; color: var(--ink-2); }
+  .pcard .ptag { margin-top: 10px; font-family: var(--mono); font-size: 8px; letter-spacing: .18em; color: var(--ink-3); }
+  .pcard .phair { margin-top: 12px; height: 1px; background: var(--line-soft); position: relative; }
+  .pcard .phair::after { content: ""; position: absolute; left: 0; top: 0; height: 1px; width: 22px; background: var(--ink-2); }
+  .pcard .pstat { margin-top: 8px; display: flex; justify-content: space-between; font-family: var(--mono); font-size: 8px; letter-spacing: .14em; color: var(--ink-3); }
+
+  /* 辩论模式 */
+  .mgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
+  .mcard { background: var(--bg); padding: 24px 24px 20px; position: relative; transition: background .25s; }
+  .mcard:hover { background: rgba(255,255,255,.045); }
+  .mcard .midx { position: absolute; top: 14px; right: 16px; font-family: var(--mono); font-size: 9px; letter-spacing: .2em; color: var(--ink-3); }
+  .mcard .mico { width: 34px; height: 34px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; margin-bottom: 16px; }
+  .mcard .mico svg { width: 17px; height: 17px; }
+  .mcard h3 { font-family: var(--mono); font-size: 15px; letter-spacing: .14em; font-weight: 600; }
+  .mcard .mzh { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+  .mcard p { font-size: 11px; color: var(--ink-3); margin-top: 12px; line-height: 1.8; }
+  .mcard .mfoot { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line); display: flex; justify-content: space-between; font-family: var(--mono); font-size: 9px; letter-spacing: .18em; color: var(--ink-3); }
+  .mcard .mfoot b { color: var(--accent); font-weight: 400; }
+
+  /* 关键词 */
+  .kw-wrap { display: flex; flex-wrap: wrap; gap: 8px; }
+  .kw {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .18em; color: var(--ink-2);
+    border: 1px solid var(--line); padding: 7px 16px; transition: all .2s; cursor: crosshair;
+  }
+  .kw:hover { color: var(--bg); background: var(--ink); }
+  .tips { display: grid; grid-template-columns: auto 1fr 1.2fr; gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); margin-top: 20px; }
+  .tips > div { background: var(--bg); padding: 20px 22px; }
+  .tips .t-ic { font-family: var(--mono); font-size: 11px; letter-spacing: .2em; color: var(--ink); display: flex; align-items: center; gap: 10px; }
+  .tips .t-txt { font-size: 12px; color: var(--ink-2); }
+  .tips .t-quote { font-size: 14px; line-height: 2; color: var(--ink); border-left: 2px solid var(--accent); padding-left: 18px; }
+  .tips .t-quote small { display: block; margin-top: 8px; font-family: var(--mono); font-size: 9px; letter-spacing: .22em; color: var(--ink-3); }
+
+  /* 底部状态栏 */
+  .statusbar {
+    margin-top: 60px; border-top: 1px solid var(--line);
+    display: grid; grid-template-columns: repeat(5, 1fr); position: relative;
+  }
+  .statusbar::before, .statusbar::after {
+    content: ""; position: absolute; top: -1px; width: 14px; height: 14px; border: 1px solid var(--line);
+  }
+  .statusbar::before { left: -1px; border-right: none; border-bottom: none; }
+  .statusbar::after { right: -1px; border-left: none; border-bottom: none; }
+  .statusbar .cell { padding: 14px 18px 18px; border-right: 1px solid var(--line-soft); }
+  .statusbar .cell:last-child { border-right: none; }
+  .statusbar .k { font-family: var(--mono); font-size: 8px; letter-spacing: .24em; color: var(--ink-3); }
+  .statusbar .v { font-family: var(--mono); font-size: 13px; color: var(--ink); margin-top: 4px; }
+  .signal { display: flex; gap: 3px; align-items: flex-end; height: 14px; margin-top: 6px; }
+  .signal i { width: 4px; background: var(--ink-2); }
+  .signal i:nth-child(1) { height: 4px; } .signal i:nth-child(2) { height: 7px; }
+  .signal i:nth-child(3) { height: 10px; } .signal i:nth-child(4) { height: 13px; }
+  .signal i:nth-child(5) { height: 13px; background: rgba(255,255,255,.18); }
+  .footer-line { padding: 22px 0 34px; display: flex; justify-content: space-between; align-items: center; }
+  .footer-line .fl { font-family: var(--mono); font-size: 9px; letter-spacing: .26em; color: var(--ink-3); }
+
+  @media (max-width: 1080px) {
+    .console { grid-template-columns: 1fr; }
+    .console > section { min-height: auto; }
+    .stage { min-height: 480px; }
+    .pgrid { grid-template-columns: repeat(2, 1fr); }
+    .mgrid { grid-template-columns: 1fr; }
+    .statusbar { grid-template-columns: repeat(2, 1fr); }
+    .hero { grid-template-columns: 1fr; }
+    .hero .side { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .radar .sweep, .live-dot i, .sys-normal i, .chart-box .live i { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="wrap">
+
+  <!-- ════════ 顶部 HUD ════════ -->
+  <header class="topbar">
+    <div class="logo">
+      <span class="mark"></span>
+      <span class="name">DEBATESPHERE</span>
+      <span class="sub">PERSONA OBSERVATORY · DS-2.0</span>
+    </div>
+    <nav class="main">
+      <a href="#" class="on">OVERVIEW</a>
+      <a href="#matrix">PERSONA</a>
+      <a href="#modes">ARENA</a>
+      <a href="#kw">ARCHIVE</a>
+    </nav>
+    <div class="top-right">
+      <div class="clock"><small id="date">2026 / 08 / 20</small><span id="time">21:36:00</span></div>
+      <div class="live-dot"><i></i>LIVE</div>
+    </div>
+  </header>
+
+  <!-- ════════ Hero ════════ -->
+  <div class="hero">
+    <div>
+      <div class="eyebrow"><span class="hash mono">#</span><span class="txt mono">未来辩论观测协议 · FUTURE DEBATE PROTOCOL</span></div>
+      <h1>SPHERE<span class="dot">.</span></h1>
+      <div class="zh">思 辩 星 球</div>
+      <div class="slogan">SIXTEEN MINDS. ONE ARENA. — 16 种人格 · 一个擂台</div>
+    </div>
+    <div class="side">
+      <div class="radar">
+        <svg viewBox="0 0 100 100" fill="none">
+          <circle cx="50" cy="50" r="48" stroke="rgba(255,255,255,.12)" stroke-width=".6"/>
+          <circle cx="50" cy="50" r="34" stroke="rgba(255,255,255,.12)" stroke-width=".6"/>
+          <circle cx="50" cy="50" r="20" stroke="rgba(255,255,255,.12)" stroke-width=".6"/>
+          <line x1="50" y1="2" x2="50" y2="98" stroke="rgba(255,255,255,.1)" stroke-width=".6"/>
+          <line x1="2" y1="50" x2="98" y2="50" stroke="rgba(255,255,255,.1)" stroke-width=".6"/>
+          <g class="sweep"><line x1="50" y1="50" x2="50" y2="4" stroke="#7c88f0" stroke-width="1" stroke-opacity=".8"/></g>
+          <circle cx="66" cy="30" r="1.6" fill="#e8e8e8"/>
+          <circle cx="34" cy="62" r="1.2" fill="#a0a0a0"/>
+          <circle cx="50" cy="50" r="2" fill="#e8e8e8"/>
+        </svg>
+      </div>
+      <div class="hero-meta">SYS <b>ONLINE</b><br>MODE <b>OBSERVE</b><br>REV <b>DS-036</b></div>
+    </div>
+    <span class="crosshair" style="top:18px;left:38%"></span>
+    <span class="crosshair" style="bottom:14px;right:24%"></span>
+  </div>
+
+  <!-- ════════ 主控制台三格 ════════ -->
+  <div class="console">
+
+    <!-- 左：系统状态 -->
+    <section>
+      <div class="panel-h"><span>SYSTEM STATUS</span><span class="idx">SYS.01</span></div>
+      <div class="stat-row"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg><span class="lb">PERSONAS</span><span class="bar"><i style="width:100%"></i></span><span class="val">16/16</span></div>
+      <div class="stat-row"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg><span class="lb">ENGINE</span><span class="bar"><i style="width:92%"></i></span><span class="val">92%</span></div>
+      <div class="stat-row"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="4" rx="1"/><rect x="3" y="10" width="18" height="4" rx="1"/><rect x="3" y="16" width="18" height="4" rx="1"/></svg><span class="lb">RAG INDEX</span><span class="bar"><i style="width:78%"></i></span><span class="val">78%</span></div>
+      <div class="stat-row"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 3v18M7 8v8M17 8v8M2 11v2M22 11v2"/></svg><span class="lb">VOICE</span><span class="bar"><i style="width:64%"></i></span><span class="val">64%</span></div>
+      <div class="stat-row"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 12a7 7 0 0114 0M8.5 12a3.5 3.5 0 017 0"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg><span class="lb">SOCKET</span><span class="bar"><i class="hi" style="width:90%"></i></span><span class="val">90%</span></div>
+      <div class="sys-normal"><span>SYSTEM NORMAL</span><i></i></div>
+
+      <div class="env-list">
+        <div class="panel-h" style="margin-top:20px"><span>ENVIRONMENT</span><span class="idx">ENV.02</span></div>
+        <div class="env-row"><span class="k">ACTIVE DEBATES</span><span class="v">12</span></div>
+        <div class="env-row"><span class="k">OBSERVERS</span><span class="v">248</span></div>
+        <div class="env-row"><span class="k">TOPICS POOL</span><span class="v">156</span></div>
+        <div class="env-row"><span class="k">MEMORY BANKS</span><span class="v">1.2K</span></div>
+        <div class="env-row"><span class="k">LATENCY</span><span class="v">23 ms</span></div>
+      </div>
+
+      <div class="notif">
+        <div class="panel-h" style="margin-top:20px"><span>NOTIFICATIONS</span><span class="idx">LOG.03</span></div>
+        <div class="n-row"><span class="t">21:32</span><span>Persona matrix loaded · 16/16</span></div>
+        <div class="n-row"><span class="t">21:28</span><span>Debate engine synchronized</span></div>
+        <div class="n-row"><span class="t">21:20</span><span>RAG knowledge index updated</span></div>
+        <div class="n-row"><span class="t">21:15</span><span>New topic signal detected</span></div>
+        <div class="view-all">VIEW ALL →</div>
+      </div>
+    </section>
+
+    <!-- 中：点阵星球 -->
+    <section class="stage">
+      <div class="planet-id">
+        <span class="tag">SPHERE</span>
+        <span class="tag"><b>PLANET ID: DS-16-E7</b></span>
+      </div>
+      <div class="coords">
+        <span class="tag">COORDINATES</span>
+        <span class="tag"><b>NT · NF · SJ · SP</b></span>
+        <span class="tag">QUADRANT MAP</span>
+      </div>
+      <span class="frame-corner fc-tl"></span><span class="frame-corner fc-tr"></span>
+      <span class="frame-corner fc-bl"></span><span class="frame-corner fc-br"></span>
+      <canvas id="globe" width="520" height="400"></canvas>
+      <div class="orbit-caption">TARGET<br><b style="color:var(--ink);font-weight:400">NEXT DEBATE SIGNAL</b></div>
+      <div class="dist">DISTANCE<b>384,400 KM</b></div>
+      <div class="dots-nav"><i class="on"></i><i></i><i></i><i></i><i></i></div>
+    </section>
+
+    <!-- 右：数据 -->
+    <section>
+      <div class="panel-h"><span>DEBATE ANALYTICS</span><span class="idx">ANA.01</span></div>
+      <div class="chart-box">
+        <div class="ch-h"><span>ARGUMENT DENSITY / 24H</span><span>MAX 100</span></div>
+        <svg viewBox="0 0 280 90" width="100%" height="90">
+          <g stroke="rgba(255,255,255,.07)" stroke-width=".5">
+            <line x1="0" y1="22" x2="280" y2="22"/><line x1="0" y1="45" x2="280" y2="45"/><line x1="0" y1="68" x2="280" y2="68"/>
+          </g>
+          <path d="M0,70 L20,62 L40,66 L60,48 L80,52 L100,38 L120,44 L140,26 L160,34 L180,22 L200,30 L220,18 L240,26 L260,14 L280,20" fill="none" stroke="#e8e8e8" stroke-width="1.2"/>
+          <path d="M0,78 L20,74 L40,76 L60,68 L80,70 L100,62 L120,66 L140,58 L160,60 L180,54 L200,58 L220,50 L240,54 L260,48 L280,52" fill="none" stroke="rgba(124,136,240,.7)" stroke-width="1" stroke-dasharray="3 3"/>
+          <circle cx="180" cy="22" r="2.4" fill="#7c88f0"/>
+          <circle cx="180" cy="22" r="5" fill="none" stroke="rgba(124,136,240,.4)" stroke-width=".8"/>
+        </svg>
+        <div class="ch-h" style="margin:4px 0 6px"><span>00:00</span><span>06:00</span><span>12:00</span><span>18:00</span><span>24:00</span></div>
+      </div>
+
+      <div class="metrics">
+        <div class="m"><div class="k">WIN RATE · NT</div><div class="v">64<small>%</small></div></div>
+        <div class="m"><div class="k">AVG ROUNDS</div><div class="v">7.2</div></div>
+        <div class="m"><div class="k">REBUTTALS</div><div class="v">1.8K</div></div>
+        <div class="m"><div class="k">JUDGED</div><div class="v">96<small>%</small></div></div>
+      </div>
+
+      <div class="chart-box">
+        <div class="ch-h"><span>DATA STREAM</span><span class="live"><i></i>LIVE</span></div>
+        <canvas id="stream" width="280" height="70" style="width:100%;height:70px"></canvas>
+        <div class="ch-h" style="margin:4px 0 6px"><span>ARG FLOW 2.45 TB/s</span><span>PACKETS 1.25 M/s</span></div>
+      </div>
+
+      <div class="ring-row">
+        <div class="ring">
+          <svg width="84" height="84" viewBox="0 0 84 84">
+            <circle cx="42" cy="42" r="36" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="3"/>
+            <circle cx="42" cy="42" r="36" fill="none" stroke="#e8e8e8" stroke-width="3" stroke-dasharray="226.2" stroke-dashoffset="54.3" stroke-linecap="butt"/>
+            <circle cx="42" cy="42" r="30" fill="none" stroke="rgba(124,136,240,.35)" stroke-width="1" stroke-dasharray="2 4"/>
+          </svg>
+          <div class="rv mono">76%</div>
+        </div>
+        <div class="ring-sub">SIGNAL SYNC <b>76%</b><br>MEMORY UPTIME <b>256d 14h</b><br>ARENA LOAD <b>NOMINAL</b></div>
+      </div>
+
+      <div class="panel-h" style="margin-top:4px"><span>QUICK ACCESS</span><span class="idx">NAV.02</span></div>
+      <div class="quick">
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span>HALL</span></a>
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span>ARENA</span></a>
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg><span>RANKS</span></a>
+        <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M4 6h16M4 12h16M4 18h10"/></svg><span>LOGS</span></a>
+      </div>
+    </section>
+  </div>
+
+  <!-- ════════ 01 人格光谱矩阵 ════════ -->
+  <div class="block" id="matrix">
+    <div class="block-h">
+      <span class="no">01</span><span class="tt">人格光谱矩阵</span>
+      <span class="en">PERSONA SPECTRUM MATRIX — 16 UNITS / 4 QUADRANTS</span>
+    </div>
+
+    <div class="pgroup">
+      <div class="pgroup-h">
+        <span class="code">NT</span><span class="zh">分析家</span><span class="en">ANALYSTS · RATIONAL MINDS</span>
+        <span class="line"></span><span class="cnt">4 UNITS</span>
+      </div>
+      <div class="pgrid">
+        <div class="pcard"><span class="pidx">P-001</span><div class="pcode">INTJ</div><div class="pname">建筑师</div><div class="ptag">STRATEGIST · 战略头脑</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-002</span><div class="pcode">INTP</div><div class="pname">逻辑学家</div><div class="ptag">LOGICIAN · 纯粹理性</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-003</span><div class="pcode">ENTJ</div><div class="pname">指挥官</div><div class="ptag">COMMANDER · 决断推进</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-004</span><div class="pcode">ENTP</div><div class="pname">辩论家</div><div class="ptag">DEBATER · 灵感交锋</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+      </div>
+    </div>
+
+    <div class="pgroup">
+      <div class="pgroup-h">
+        <span class="code">NF</span><span class="zh">外交家</span><span class="en">DIPLOMATS · EMPATHIC CORE</span>
+        <span class="line"></span><span class="cnt">4 UNITS</span>
+      </div>
+      <div class="pgrid">
+        <div class="pcard"><span class="pidx">P-005</span><div class="pcode">INFJ</div><div class="pname">提倡者</div><div class="ptag">ADVOCATE · 洞察理想</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-006</span><div class="pcode">INFP</div><div class="pname">调停者</div><div class="ptag">MEDIATOR · 价值守护</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-007</span><div class="pcode">ENFJ</div><div class="pname">主人公</div><div class="ptag">PROTAGONIST · 感召引领</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-008</span><div class="pcode">ENFP</div><div class="pname">竞选者</div><div class="ptag">CAMPAIGNER · 热忱火花</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+      </div>
+    </div>
+
+    <div class="pgroup">
+      <div class="pgroup-h">
+        <span class="code">SJ</span><span class="zh">守护者</span><span class="en">SENTINELS · ORDER KEEPERS</span>
+        <span class="line"></span><span class="cnt">4 UNITS</span>
+      </div>
+      <div class="pgrid">
+        <div class="pcard"><span class="pidx">P-009</span><div class="pcode">ISTJ</div><div class="pname">物流师</div><div class="ptag">LOGISTICIAN · 严谨秩序</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-010</span><div class="pcode">ISFJ</div><div class="pname">守卫者</div><div class="ptag">DEFENDER · 温厚尽责</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-011</span><div class="pcode">ESTJ</div><div class="pname">总经理</div><div class="ptag">EXECUTIVE · 执行章法</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-012</span><div class="pcode">ESFJ</div><div class="pname">执政官</div><div class="ptag">CONSUL · 联结照拂</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+      </div>
+    </div>
+
+    <div class="pgroup">
+      <div class="pgroup-h">
+        <span class="code">SP</span><span class="zh">探险家</span><span class="en">EXPLORERS · KINETIC SPIRITS</span>
+        <span class="line"></span><span class="cnt">4 UNITS</span>
+      </div>
+      <div class="pgrid">
+        <div class="pcard"><span class="pidx">P-013</span><div class="pcode">ISTP</div><div class="pname">鉴赏家</div><div class="ptag">VIRTUOSO · 冷静拆解</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-014</span><div class="pcode">ISFP</div><div class="pname">探险家</div><div class="ptag">ADVENTURER · 敏锐感知</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-015</span><div class="pcode">ESTP</div><div class="pname">企业家</div><div class="ptag">ENTREPRENEUR · 果敢行动</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+        <div class="pcard"><span class="pidx">P-016</span><div class="pcode">ESFP</div><div class="pname">表演者</div><div class="ptag">ENTERTAINER · 热力当下</div><div class="phair"></div><div class="pstat"><span>DRIVES 5D</span><span>MEM ∞</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ 02 辩论模式 ════════ -->
+  <div class="block" id="modes">
+    <div class="block-h">
+      <span class="no">02</span><span class="tt">辩论模式</span>
+      <span class="en">ARENA PROTOCOLS — 3 OPERATING MODES</span>
+    </div>
+    <div class="mgrid">
+      <div class="mcard">
+        <span class="midx">MOD.01</span>
+        <div class="mico"><svg viewBox="0 0 24 24" fill="none" stroke="#e8e8e8" stroke-width="1.4"><path d="M8 21h8M12 17v4M17 4H7v5a5 5 0 0010 0V4z"/><path d="M17 6h3a1 1 0 011 1c0 2.5-2 4-4 4M7 6H4a1 1 0 00-1 1c0 2.5 2 4 4 4"/></svg></div>
+        <h3>DUEL · 1V1</h3><div class="mzh">人格对决</div>
+        <p>任选两种人格就同一辩题实时交锋。立场宣言 → 四步论证 → 精准反驳 → 一句封喉，裁判人格全程评分。</p>
+        <div class="mfoot"><span>LATENCY <b>23ms</b></span><span>ROUNDS <b>7</b></span></div>
+      </div>
+      <div class="mcard">
+        <span class="midx">MOD.02</span>
+        <div class="mico"><svg viewBox="0 0 24 24" fill="none" stroke="#e8e8e8" stroke-width="1.4"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg></div>
+        <h3>SPECTATE · 观战</h3><div class="mzh">全自动辩论</div>
+        <p>多智能体编排器驱动：审题 → 检索 → 立场 → 交锋 → 总结，思考链全程可视化，RAG 知识库实时引用。</p>
+        <div class="mfoot"><span>AGENTS <b>3+1</b></span><span>COT <b>ON</b></span></div>
+      </div>
+      <div class="mcard">
+        <span class="midx">MOD.03</span>
+        <div class="mico"><svg viewBox="0 0 24 24" fill="none" stroke="#e8e8e8" stroke-width="1.4"><path d="M21 12a8 8 0 01-8 8H5l-2 2V12a8 8 0 018-8h2a8 8 0 018 8z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg></div>
+        <h3>DIALOGUE · 对话</h3><div class="mzh">人格深谈</div>
+        <p>与单一人格 1v1 深度对话，无胜负无裁判。五维驱力状态演化 + 持久记忆沉淀，越聊越懂你。</p>
+        <div class="mfoot"><span>MEMORY <b>∞</b></span><span>STATE <b>5D</b></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════ 03 关键词 ════════ -->
+  <div class="block" id="kw">
+    <div class="block-h">
+      <span class="no">03</span><span class="tt">系统关键词</span>
+      <span class="en">SYSTEM KEYWORDS — CAPABILITY INDEX</span>
+    </div>
+    <div class="kw-wrap">
+      <span class="kw">PERSONA</span><span class="kw">RAG</span><span class="kw">MULTI-AGENT</span><span class="kw">REALTIME</span>
+      <span class="kw">VOICE</span><span class="kw">PK ARENA</span><span class="kw">MEMORY</span><span class="kw">JUDGE</span>
+      <span class="kw">COT VISIBLE</span><span class="kw">KNOWLEDGE</span><span class="kw">DRIVES 5D</span><span class="kw">ARCHIVE</span>
+    </div>
+    <div class="tips">
+      <div class="t-ic"><span>SIGNAL →→</span></div>
+      <div class="t-txt">想让 16 种人格理解同一个辩题？<br>观测站已建立通讯协议。</div>
+      <div class="t-quote">「16 种看世界的方式，在同一个擂台上相遇。不是要分出对错，而是让每种思维都被认真听见。」<small>OBSERVATORY DOCTRINE · REV 036</small></div>
+    </div>
+  </div>
+
+  <!-- ════════ 底部状态栏 ════════ -->
+  <div class="statusbar">
+    <div class="cell"><div class="k">MODE</div><div class="v">OBSERVE</div></div>
+    <div class="cell"><div class="k">OPERATOR</div><div class="v">GUEST_01</div></div>
+    <div class="cell"><div class="k">SESSION UPTIME</div><div class="v" id="uptime">00:00:00</div></div>
+    <div class="cell"><div class="k">SYSTEM ID</div><div class="v">DS-7F3Q-36</div></div>
+    <div class="cell"><div class="k">SIGNAL</div><div class="signal"><i></i><i></i><i></i><i></i><i></i></div></div>
+  </div>
+  <div class="footer-line">
+    <span class="fl">NOT A GENERATION OF PAGES, BUT A STEP TOWARD REAL DIALOGUE.</span>
+    <span class="fl">DEBATESPHERE · 思辩星球 — 2026</span>
+  </div>
+</div>
+
+<script>
+/* ═══ 实时时钟 ═══ */
+(function(){
+  var t = document.getElementById('time'), d = document.getElementById('date');
+  function pad(n){ return (n<10?'0':'')+n; }
+  function tick(){
+    var n = new Date();
+    t.textContent = pad(n.getHours())+':'+pad(n.getMinutes())+':'+pad(n.getSeconds());
+    d.textContent = n.getFullYear()+' / '+pad(n.getMonth()+1)+' / '+pad(n.getDate());
+  }
+  tick(); setInterval(tick, 1000);
+})();
+
+/* ═══ Uptime 计时 ═══ */
+(function(){
+  var el = document.getElementById('uptime'), s0 = Date.now();
+  function pad(n){ return (n<10?'0':'')+n; }
+  setInterval(function(){
+    var s = Math.floor((Date.now()-s0)/1000);
+    el.textContent = pad(Math.floor(s/3600))+':'+pad(Math.floor(s/60)%60)+':'+pad(s%60);
+  }, 1000);
+})();
+
+/* ═══ 点阵星球（canvas，正交投影 + 大陆高斯簇 + 缓慢自转） ═══ */
+(function(){
+  var cv = document.getElementById('globe'), ctx = cv.getContext('2d');
+  var W = cv.width, H = cv.height, CX = W/2, CY = H/2 + 8, R = 128;
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* 大陆中心簇（lat°, lon°, 半径°） */
+  var lands = [
+    [48,-100,22],[35,-95,14],[-15,-60,16],[-5,-70,10],[5,20,22],[-20,25,12],
+    [52,15,11],[45,95,24],[30,80,12],[12,102,9],[-25,135,11],[62,95,14],
+    [55,-45,7],[36,138,6],[-2,118,8]
+  ];
+  /* 预生成星球表面点（lat/lon） */
+  var pts = [];
+  function hash(x){ var s = Math.sin(x*127.1)*43758.5453; return s - Math.floor(s); }
+  for (var i = 0; i < 9000 && pts.length < 1500; i++) {
+    var lat = (hash(i*1.7)-0.5)*170;
+    var lon = (hash(i*2.3)-0.5)*360;
+    for (var j = 0; j < lands.length; j++) {
+      var L = lands[j];
+      var dlat = lat-L[0], dlon = lon-L[1];
+      if (dlon > 180) dlon -= 360; if (dlon < -180) dlon += 360;
+      var dd = Math.sqrt(dlat*dlat + dlon*dlon*Math.cos(lat*Math.PI/180)*Math.cos(lat*Math.PI/180));
+      var jitter = (hash(i*3.1+j*7.7)-0.5)*7;
+      if (dd < L[2] + jitter) { pts.push([lat, lon]); break; }
+    }
+  }
+
+  function draw(rot) {
+    ctx.clearRect(0, 0, W, H);
+
+    /* 外轨道环 */
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,.10)'; ctx.lineWidth = .7;
+    ctx.beginPath(); ctx.ellipse(CX, CY, R+44, (R+44)*.32, -0.28, 0, Math.PI*2); ctx.stroke();
+    ctx.strokeStyle = 'rgba(124,136,240,.22)';
+    ctx.beginPath(); ctx.ellipse(CX, CY, R+58, (R+58)*.28, -0.28, Math.PI*0.15, Math.PI*0.85); ctx.stroke();
+    ctx.restore();
+
+    /* 刻度环 */
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = .6;
+    for (var a = 0; a < 360; a += 6) {
+      var rad = a*Math.PI/180, r1 = R+16, r2 = R+16 + (a%30===0 ? 7 : 3);
+      ctx.beginPath();
+      ctx.moveTo(CX+Math.cos(rad)*r1, CY+Math.sin(rad)*r1);
+      ctx.lineTo(CX+Math.cos(rad)*r2, CY+Math.sin(rad)*r2);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    /* 经纬网格（背面淡、正面实） */
+    ctx.save();
+    for (var la = -60; la <= 60; la += 30) {
+      var y = CY - R*Math.sin(la*Math.PI/180);
+      var rw = R*Math.cos(la*Math.PI/180);
+      ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = .5;
+      ctx.beginPath(); ctx.ellipse(CX, y, rw, rw*.18, 0, 0, Math.PI*2); ctx.stroke();
+    }
+    for (var lo = 0; lo < 180; lo += 30) {
+      var ph = (lo + rot)%360;
+      var sx = Math.cos(ph*Math.PI/180);
+      ctx.strokeStyle = 'rgba(255,255,255,'+(sx>0? .10 : .04)+')'; ctx.lineWidth = .5;
+      ctx.beginPath(); ctx.ellipse(CX, CY, Math.abs(R*sx), R, 0, 0, Math.PI*2); ctx.stroke();
+    }
+    ctx.restore();
+
+    /* 大陆点阵 */
+    for (var p = 0; p < pts.length; p++) {
+      var lat2 = pts[p][0]*Math.PI/180, lon2 = (pts[p][1]+rot)*Math.PI/180;
+      var x3 = Math.cos(lat2)*Math.sin(lon2);
+      var y3 = Math.sin(lat2);
+      var z3 = Math.cos(lat2)*Math.cos(lon2);
+      if (z3 < -0.05) continue;
+      var px = CX + R*x3, py = CY - R*y3;
+      var alpha = z3 < 0 ? .08 : .25 + z3*.55;
+      ctx.fillStyle = 'rgba(232,232,232,'+alpha.toFixed(3)+')';
+      var sz = z3 > .6 ? 1.3 : 1;
+      ctx.fillRect(px, py, sz, sz);
+    }
+
+    /* 边缘光（品牌微光） */
+    var g = ctx.createRadialGradient(CX, CY, R*.7, CX, CY, R+10);
+    g.addColorStop(0, 'rgba(124,136,240,0)');
+    g.addColorStop(.85, 'rgba(124,136,240,.05)');
+    g.addColorStop(1, 'rgba(124,136,240,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(CX, CY, R+10, 0, Math.PI*2); ctx.fill();
+
+    /* 球体轮廓 */
+    ctx.strokeStyle = 'rgba(255,255,255,.16)'; ctx.lineWidth = .8;
+    ctx.beginPath(); ctx.arc(CX, CY, R, 0, Math.PI*2); ctx.stroke();
+
+    /* 目标标记 */
+    var tm = Date.now()/900;
+    var tx = CX + Math.cos(tm*.7)*R*.45, ty = CY - Math.sin(tm*.5)*R*.3;
+    ctx.strokeStyle = 'rgba(124,136,240,.85)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(tx, ty, 5, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = '#7c88f0'; ctx.fillRect(tx-.8, ty-.8, 1.6, 1.6);
+    ctx.strokeStyle = 'rgba(124,136,240,.35)';
+    ctx.beginPath(); ctx.moveTo(tx+7, ty-7); ctx.lineTo(tx+22, ty-22); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.font = '8px ui-monospace, monospace';
+    ctx.fillText('SIG-' + String(Math.floor(tm%9000)).padStart(4,'0'), tx+24, ty-24);
+  }
+
+  var rot = 0;
+  function loop() {
+    rot = (rot + 0.06) % 360;
+    draw(rot);
+    if (!reduced) requestAnimationFrame(loop);
+  }
+  loop();
+  if (reduced) draw(20);
+})();
+
+/* ═══ DATA STREAM 动态波形 ═══ */
+(function(){
+  var cv = document.getElementById('stream'), ctx = cv.getContext('2d');
+  var W = cv.width, H = cv.height;
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var t = 0;
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(255,255,255,.07)'; ctx.lineWidth = .5;
+    for (var y = 14; y < H; y += 14) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+    /* 三层波形 */
+    var waves = [
+      { c: 'rgba(232,232,232,.9)', w: 1.1, a: 14, f: .045, sp: .05, ph: 0 },
+      { c: 'rgba(124,136,240,.6)', w: .8, a: 10, f: .07, sp: .07, ph: 2 },
+      { c: 'rgba(255,255,255,.28)', w: .6, a: 18, f: .03, sp: .035, ph: 4 }
+    ];
+    waves.forEach(function(wv) {
+      ctx.strokeStyle = wv.c; ctx.lineWidth = wv.w;
+      ctx.beginPath();
+      for (var x = 0; x <= W; x += 2) {
+        var yy = H/2 + Math.sin(x*wv.f + t*wv.sp + wv.ph)*wv.a*Math.sin(x/W*Math.PI);
+        x === 0 ? ctx.moveTo(x, yy) : ctx.lineTo(x, yy);
+      }
+      ctx.stroke();
+    });
+    /* 数据点 */
+    for (var i = 0; i < 7; i++) {
+      var dx = ((t*.8 + i*47) % W);
+      ctx.fillStyle = 'rgba(124,136,240,.8)';
+      ctx.fillRect(dx, H/2 - 1, 2, 2);
+    }
+    t++;
+    if (!reduced) requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "name": "mbti-debate-platform",
+  "version": "1.0.0",
+  "description": "MBTI 人格辩论平台 - 桌面版",
+  "main": "main.js",
+  "author": "老k",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis"
+  },
+  "build": {
+    "appId": "com.mbti.debate.platform",
+    "productName": "MBTI人格辩论平台",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "../client/dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../client/dist",
+        "to": "client/dist"
+      }
+    ],
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "MBTI人格辩论平台"
+    }
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.0"
+  }
+}

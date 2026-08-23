@@ -1,0 +1,570 @@
+/* ============================================================
+   DebateSphere · OBSERVATORY（v37 FUI 人格观测站样式层）
+   纯黑底 + 白灰阶 + 单强调色 #7c88f0 · HUD 线框 · mono 排版
+   引入顺序最后（index.css → debateSphere.css → observatory.css）
+   ============================================================ */
+
+:root {
+  --fui-bg: #050505;
+  --fui-bg-2: #0a0a0a;
+  --fui-ink: #e8e8e8;
+  --fui-ink-2: #a0a0a0;
+  --fui-ink-3: #5c5c5c;
+  --fui-line: rgba(255, 255, 255, 0.14);
+  --fui-line-soft: rgba(255, 255, 255, 0.07);
+  --fui-panel: rgba(255, 255, 255, 0.02);
+  --fui-accent: #7c88f0;
+  --fui-mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
+}
+
+/* ── 深色主题底色收敛为纯黑（FUI 全局基调） ── */
+html.dark {
+  --color-bg: #050505;
+  --color-bg-secondary: #0a0a0a;
+}
+
+/* ── 深空背景改造：去星云光斑 → 纯黑 + 细网格（FUI 坐标感） ── */
+html.dark .deepspace-bg {
+  background: #050505;
+}
+html.dark .deepspace-bg::before {
+  /* 屏蔽原星云 ambient 光斑 */
+  background: none !important;
+  animation: none !important;
+}
+html.dark .deepspace-bg::after {
+  /* 细坐标网格，顶部渐隐 */
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px) !important;
+  background-size: 72px 72px !important;
+  opacity: 1 !important;
+  animation: none !important;
+  mask-image: radial-gradient(130% 100% at 50% 0%, #000 35%, transparent 95%);
+  -webkit-mask-image: radial-gradient(130% 100% at 50% 0%, #000 35%, transparent 95%);
+}
+
+/* ── 全局扫描线覆层（HUD 质感，极低透明度） ── */
+.fui-scanlines {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.016) 0 1px, transparent 1px 3px);
+}
+
+/* ============ FUI 工具类 ============ */
+
+/* 标签：mono 全大写小字 */
+.fui-tag {
+  font-family: var(--fui-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fui-ink-3);
+}
+.fui-tag b { color: var(--fui-ink-2); font-weight: 400; }
+
+/* 线框面板 */
+.fui-panel {
+  background: var(--fui-panel);
+  border: 1px solid var(--fui-line);
+  position: relative;
+}
+/* 面板四角切角装饰 */
+.fui-corners { position: relative; }
+.fui-corners::before,
+.fui-corners::after {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--fui-line);
+  pointer-events: none;
+  z-index: 2;
+}
+.fui-corners::before { top: -1px; left: -1px; border-right: none; border-bottom: none; }
+.fui-corners::after { bottom: -1px; right: -1px; border-left: none; border-top: none; }
+
+/* 面板头（带编号） */
+.fui-panel-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--fui-line-soft);
+  font-family: var(--fui-mono);
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  color: var(--fui-ink-2);
+}
+.fui-panel-h .idx { color: var(--fui-ink-3); }
+
+/* 分隔细线 */
+.fui-hairline { height: 1px; background: var(--fui-line-soft); }
+.fui-hairline-dash { height: 1px; background: none; border-top: 1px dashed var(--fui-line); }
+
+/* 按钮：线框（次要） */
+.fui-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--fui-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fui-ink-2);
+  background: transparent;
+  border: 1px solid var(--fui-line);
+  padding: 10px 18px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.fui-btn:hover:not(:disabled) { color: var(--fui-bg); background: var(--fui-ink); border-color: var(--fui-ink); }
+.fui-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.fui-btn:focus-visible { outline: 2px solid var(--fui-accent); outline-offset: 2px; }
+
+/* 按钮：主操作（白底黑字，克制） */
+.fui-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--fui-mono);
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #050505;
+  background: var(--fui-ink);
+  border: 1px solid var(--fui-ink);
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.fui-btn-primary:hover:not(:disabled) { background: #ffffff; border-color: #ffffff; box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12); }
+.fui-btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+.fui-btn-primary:focus-visible { outline: 2px solid var(--fui-accent); outline-offset: 2px; }
+
+/* 输入框：线框 */
+.fui-input {
+  width: 100%;
+  font-family: var(--fui-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--fui-ink);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--fui-line);
+  padding: 10px 14px;
+  transition: border-color 0.2s ease;
+}
+.fui-input::placeholder { color: var(--fui-ink-3); }
+.fui-input:focus { outline: none; border-color: rgba(255, 255, 255, 0.4); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.2); }
+
+/* Tab：mono 线框 */
+.fui-tab {
+  font-family: var(--fui-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--fui-ink-3);
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+.fui-tab:hover { color: var(--fui-ink); }
+.fui-tab.on { color: var(--fui-ink); border-color: var(--fui-line); background: var(--fui-panel); }
+
+/* 大数字 */
+.fui-num { font-family: var(--fui-mono); font-variant-numeric: tabular-nums; color: var(--fui-ink); }
+
+/* 十字准星装饰 */
+.fui-crosshair { position: absolute; width: 15px; height: 15px; opacity: 0.5; pointer-events: none; }
+.fui-crosshair::before, .fui-crosshair::after { content: ""; position: absolute; background: var(--fui-ink-3); }
+.fui-crosshair::before { left: 7px; top: 0; width: 1px; height: 15px; }
+.fui-crosshair::after { top: 7px; left: 0; width: 15px; height: 1px; }
+
+/* 刻度尺装饰（横向） */
+.fui-ruler {
+  height: 8px;
+  background-image: repeating-linear-gradient(90deg, var(--fui-line) 0 1px, transparent 1px 12px);
+  position: relative;
+  overflow: hidden;
+}
+.fui-ruler::after {
+  content: "";
+  position: absolute; inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 59px, var(--fui-ink-2) 59px 60px);
+  opacity: 0.6;
+}
+
+/* LIVE 呼吸点 */
+.fui-live { display: inline-flex; align-items: center; gap: 7px; font-family: var(--fui-mono); font-size: 9px; letter-spacing: 0.2em; color: var(--fui-ink-2); }
+.fui-live i { width: 6px; height: 6px; background: var(--fui-accent); border-radius: 50%; animation: fuiBreathe 1.6s ease-in-out infinite; }
+
+/* 进度条（细线型） */
+.fui-bar { flex: 1; height: 2px; background: rgba(255, 255, 255, 0.08); position: relative; }
+.fui-bar > i { position: absolute; inset: 0 auto 0 0; background: var(--fui-ink); display: block; }
+.fui-bar > i.hi { background: var(--fui-accent); }
+
+/* 编号徽章 */
+.fui-idx-badge {
+  font-family: var(--fui-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--fui-ink-2);
+  border: 1px solid var(--fui-line);
+  padding: 2px 8px;
+}
+
+/* 人格卡（FUI 版）：线框 + hover 扫描高亮 */
+.fui-pcard {
+  background: var(--fui-bg);
+  border: 1px solid var(--fui-line-soft);
+  padding: 18px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.25s ease, border-color 0.25s ease;
+  overflow: hidden;
+  text-align: left;
+  width: 100%;
+}
+.fui-pcard::after {
+  /* hover 扫描线 */
+  content: "";
+  position: absolute; left: 0; right: 0; top: -30%;
+  height: 30%;
+  background: linear-gradient(180deg, transparent, rgba(124, 136, 240, 0.06), transparent);
+  transition: top 0.6s ease;
+  pointer-events: none;
+}
+.fui-pcard:hover { background: rgba(255, 255, 255, 0.04); border-color: var(--fui-line); }
+.fui-pcard:hover::after { top: 130%; }
+.fui-pcard.selected { border-color: rgba(255, 255, 255, 0.55); background: rgba(255, 255, 255, 0.05); }
+.fui-pcard.selected::before {
+  content: "";
+  position: absolute; top: 10px; right: 10px;
+  width: 8px; height: 8px;
+  background: var(--fui-accent);
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+/* 关键词标签 */
+.fui-kw {
+  font-family: var(--fui-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--fui-ink-2);
+  border: 1px solid var(--fui-line);
+  padding: 7px 16px;
+  transition: all 0.2s ease;
+  cursor: default;
+}
+.fui-kw:hover { color: var(--fui-bg); background: var(--fui-ink); }
+
+/* 信号柱 */
+.fui-signal { display: flex; gap: 3px; align-items: flex-end; height: 14px; }
+.fui-signal i { width: 4px; background: var(--fui-ink-2); display: block; }
+.fui-signal i:nth-child(1) { height: 4px; }
+.fui-signal i:nth-child(2) { height: 7px; }
+.fui-signal i:nth-child(3) { height: 10px; }
+.fui-signal i:nth-child(4) { height: 13px; }
+.fui-signal i:nth-child(5) { height: 13px; background: rgba(255, 255, 255, 0.18); }
+
+/* 滚动文字（marquee，FUI 版） */
+@keyframes fuiMarquee { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+.fui-marquee { overflow: hidden; white-space: nowrap; }
+.fui-marquee-track { display: inline-flex; gap: 28px; animation: fuiMarquee 26s linear infinite; will-change: transform; }
+
+/* 雷达扫描旋转 */
+@keyframes fuiSweep { to { transform: rotate(360deg); } }
+.fui-radar-sweep { transform-origin: 50% 50%; animation: fuiSweep 5s linear infinite; }
+
+/* 呼吸 */
+@keyframes fuiBreathe { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+/* 闪烁（光标/提示符） */
+@keyframes fuiBlink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+.fui-blink { animation: fuiBlink 1.1s step-end infinite; }
+
+/* 打字机光标 */
+.fui-caret::after { content: "▌"; color: var(--fui-accent); animation: fuiBlink 1.1s step-end infinite; }
+
+/* 数字滚动时保持等宽 */
+.fui-tabular { font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   v37.1 · 全站 FUI 覆写（把 v36 玻璃/霓虹类统一收敛为 FUI）
+   针对剩余页面（DebateRoom / PersonaChat / Square / Stats /
+   Settings / Knowledge / PetShop / PK / Admin / History / Match）
+   只覆写视觉层，不改任何功能逻辑
+   ============================================================ */
+
+/* ── 全局底色：确保所有页面纯黑 ── */
+html.dark body { background: #050505; }
+html.dark #root { background: #050505; }
+
+/* ── 全局文字：深色主题收敛为 FUI 灰阶 ── */
+html.dark { color-scheme: dark; }
+
+/* ── .glass → FUI 线框面板 ── */
+html.dark .glass {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid var(--fui-line) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+/* ── .bento-card → FUI 面板 ── */
+html.dark .bento-card {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid var(--fui-line-soft) !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+html.dark .bento-card:hover {
+  border-color: var(--fui-line) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+/* ── .card-spotlight → FUI hover 扫描 ── */
+html.dark .card-spotlight {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid var(--fui-line-soft) !important;
+}
+html.dark .card-spotlight::before { display: none !important; }
+html.dark .card-spotlight:hover {
+  border-color: var(--fui-line) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* ── 按钮：.neon-btn → FUI 主按钮 ── */
+html.dark .neon-btn {
+  background: var(--fui-ink) !important;
+  color: #050505 !important;
+  border: 1px solid var(--fui-ink) !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  font-family: var(--fui-mono) !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase !important;
+  font-size: 11px !important;
+  animation: none !important;
+}
+html.dark .neon-btn:hover:not(:disabled) {
+  background: #ffffff !important;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.10) !important;
+  transform: none !important;
+}
+
+/* ── .btn 系列 → FUI 按钮 ── */
+html.dark .btn {
+  background: transparent;
+  border: 1px solid var(--fui-line);
+  color: var(--fui-ink-2);
+  font-family: var(--fui-mono);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  box-shadow: none !important;
+  text-shadow: none !important;
+}
+html.dark .btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--fui-ink);
+}
+html.dark .btn-primary {
+  background: var(--fui-ink);
+  color: #050505;
+  border: 1px solid var(--fui-ink);
+}
+html.dark .btn-primary:hover:not(:disabled) {
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.10);
+}
+html.dark .btn-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--fui-ink-2);
+}
+html.dark .btn-ghost:hover:not(:disabled) {
+  border-color: var(--fui-line);
+  background: rgba(255, 255, 255, 0.03);
+}
+html.dark .btn-sheen::after { display: none !important; }
+html.dark .btn-sm { font-size: 10px; padding: 6px 12px; }
+
+/* ── .tag / .tag-active → FUI 关键词标签 ── */
+html.dark .tag {
+  font-family: var(--fui-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fui-ink-2);
+  border: 1px solid var(--fui-line);
+  background: transparent;
+}
+html.dark .tag-active {
+  color: #050505;
+  background: var(--fui-ink);
+  border-color: var(--fui-ink);
+}
+
+/* ── .input-field → FUI 输入框 ── */
+html.dark .input-field {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid var(--fui-line) !important;
+  color: var(--fui-ink) !important;
+  font-family: var(--fui-mono) !important;
+  font-size: 12px !important;
+  box-shadow: none !important;
+}
+html.dark .input-field::placeholder { color: var(--fui-ink-3) !important; }
+html.dark .input-field:focus {
+  border-color: rgba(255, 255, 255, 0.35) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15) !important;
+}
+
+/* ── .display-title → FUI 大标题 ── */
+html.dark .display-title {
+  color: var(--fui-ink) !important;
+  text-shadow: none !important;
+  letter-spacing: -0.03em;
+}
+
+/* ── .gradient-text → FUI 纯白 ── */
+html.dark .gradient-text {
+  background: none !important;
+  -webkit-background-clip: unset !important;
+  background-clip: unset !important;
+  -webkit-text-fill-color: var(--fui-ink) !important;
+  color: var(--fui-ink) !important;
+}
+
+/* ── .thinking-orb → FUI 色彩 ── */
+html.dark .thinking-orb {
+  background: conic-gradient(from 0deg, var(--fui-accent), rgba(255,255,255,0.15), var(--fui-accent)) !important;
+  box-shadow: none !important;
+}
+
+/* ── .thinking-dots → FUI 色 ── */
+html.dark .thinking-dots span { background: var(--fui-ink-2) !important; }
+
+/* ── .avatar / .avatar-sm → FUI 线框 ── */
+html.dark .avatar, html.dark .avatar-sm {
+  border: 1px solid var(--fui-line) !important;
+  box-shadow: none !important;
+}
+
+/* ── .bubble-gradient → FUI 气泡 ── */
+html.dark .bubble-gradient {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid var(--fui-line) !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+/* ── .neon-bar-fill → FUI 进度条 ── */
+html.dark .neon-bar-fill {
+  background: var(--fui-ink) !important;
+  box-shadow: none !important;
+}
+
+/* ── .side-badge → FUI 标签 ── */
+html.dark .side-badge {
+  font-family: var(--fui-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase !important;
+  border: 1px solid var(--fui-line) !important;
+  box-shadow: none !important;
+}
+
+/* ── .planet-logo → FUI 单色 ── */
+html.dark .planet-logo {
+  box-shadow: none !important;
+}
+
+/* ── .hero-title → FUI 标题 ── */
+html.dark .hero-title {
+  text-shadow: none !important;
+}
+
+/* ── .stagger-item → 保留动画但去玻璃 ── */
+html.dark .stagger-item {
+  background: rgba(255, 255, 255, 0.02) !important;
+  border: 1px solid var(--fui-line-soft) !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+/* ── 滚动条 FUI 化 ── */
+html.dark ::-webkit-scrollbar { width: 6px; height: 6px; }
+html.dark ::-webkit-scrollbar-track { background: #050505; }
+html.dark ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 0; }
+html.dark ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.22); }
+
+/* ── 全局圆角收敛：大圆角 → 小圆角（FUI 切角感） ── */
+html.dark .rounded-2xl { border-radius: 4px; }
+html.dark .rounded-xl { border-radius: 4px; }
+html.dark .rounded-lg { border-radius: 3px; }
+
+/* ── 全局边框色：dark 模式统一为 FUI 线 ── */
+html.dark .border,
+html.dark .border-b,
+html.dark .border-t,
+html.dark .border-l,
+html.dark .border-r { border-color: var(--fui-line) !important; }
+
+/* ── 选中文字 ── */
+html.dark ::selection { background: rgba(124, 136, 240, 0.30); color: #fff; }
+
+/* ── 减少动效偏好 ── */
+@media (prefers-reduced-motion: reduce) {
+  .fui-radar-sweep, .fui-live i, .fui-marquee-track, .fui-blink, .fui-caret::after { animation: none !important; }
+  .fui-pcard::after { display: none; }
+}
+
+/* ============================================================
+   v37.2 · 页面级 FUI 外壳（FUIPageWrapper 动态背景 + 页头/页脚）
+   ============================================================ */
+
+/* 页面外壳：确保内容可滚动，背景固定在后面 */
+.fui-page-wrapper {
+  position: relative;
+  isolation: isolate; /* 新建层叠上下文，canvas 背景不会穿透到其他 tab */
+}
+
+/* 页面内容容器：透明背景让 canvas 透出 */
+html.dark .fui-page-content {
+  background: transparent !important;
+}
+
+/* 确保页面内的 glass 面板在 FUI 背景上有可读性 */
+html.dark .fui-page-content .glass,
+html.dark .fui-page-content .bento-card,
+html.dark .fui-page-content .card-spotlight {
+  background: rgba(5, 5, 5, 0.72) !important;
+  backdrop-filter: none !important;
+}
+
+/* 页头分隔线动画（从左到右亮过一下） */
+.fui-page-header {
+  background: linear-gradient(90deg, rgba(124, 136, 240, 0.03), transparent 30%);
+}
+
+/* 页脚信号柱颜色 */
+html.dark .fui-page-footer .fui-signal i {
+  background: var(--fui-ink-2);
+}
+html.dark .fui-page-footer .fui-signal i:nth-child(5) {
+  background: rgba(255, 255, 255, 0.15);
+}

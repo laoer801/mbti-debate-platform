@@ -1,0 +1,1 @@
+﻿ERR: 使用“1”个参数调用“Delete”时发生异常:“对路径“C:\Users\老2\.gradle\wrapper\dists\gradle-8.14.3-all\10utluxaxniiv4wxiphsi49nj\gradle-8.14.3-all.zip.lck”的访问被拒绝。”

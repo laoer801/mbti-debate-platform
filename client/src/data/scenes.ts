@@ -1,0 +1,107 @@
+import { Scene, SceneTemplate } from '../types'
+
+export const scenes: Scene[] = [
+  {
+    id: 'consciousness',
+    title: 'AI意识之辩',
+    description: 'AI是否可能拥有真正的自我意识？',
+    topic: 'AI是否可能具备真正的自我意识？如果具备，这对人类意味着什么？',
+    recommendedTypes: ['INTP', 'INTJ', 'INFJ', 'ENTP'],
+    difficulty: 'hard',
+  },
+  {
+    id: 'freewill',
+    title: '自由意志探讨',
+    description: '人的选择是自由的还是被决定的？',
+    topic: '自由意志是否真实存在？还是人的每一个决定都已被生物和物理规律预先决定？',
+    recommendedTypes: ['INTJ', 'INFP', 'ENTP', 'ISTP'],
+    difficulty: 'hard',
+  },
+  {
+    id: 'extrovert-introvert',
+    title: '外向vs内向',
+    description: '外向和内向哪种生活方式更优？',
+    topic: '在这个推崇社交的时代，内向性格是否处于天然劣势？还是内向者有不可替代的优势？',
+    recommendedTypes: ['ENFP', 'INTJ', 'ESFJ', 'INTP'],
+    difficulty: 'easy',
+  },
+  {
+    id: 'emotion-logic',
+    title: '理性vs感性',
+    description: '重大决策中理性和感性谁更可靠？',
+    topic: '在人生重大决策中，理性分析和感性直觉，哪一个更值得信赖？',
+    recommendedTypes: ['ISTJ', 'ENFJ', 'ENTJ', 'ISFP'],
+    difficulty: 'medium',
+  },
+  {
+    id: 'plan-spontaneity',
+    title: '规划vs随性',
+    description: '按计划生活还是随性而为？',
+    topic: '人生应该被精心规划，还是应该拥抱不确定性随机应变？两者各自的代价是什么？',
+    recommendedTypes: ['ESTJ', 'INFP', 'ENTJ', 'ISFP'],
+    difficulty: 'medium',
+  },
+  {
+    id: 'truth-kindness',
+    title: '真相vs善意',
+    description: '残酷的真相和温暖的谎言哪个更好？',
+    topic: '我们更需要的，是直面残酷的真相，还是被善意包裹的保护？',
+    recommendedTypes: ['INFJ', 'ENTP', 'ISFJ', 'ESTP'],
+    difficulty: 'medium',
+  },
+]
+
+export const sceneTemplates: SceneTemplate[] = [
+  {
+    id: 'courtroom',
+    title: '法庭辩论',
+    emoji: '⚖️',
+    description: '模拟法庭场景，正反方律师交替陈词，由"法官"主持秩序',
+    background: '庄严的法庭内，木槌敲击声回荡',
+    roles: [
+      { typeId: 'ENTJ', roleName: '法官', description: '维护辩论秩序，裁定论点有效性' },
+      { typeId: 'ESTJ', roleName: '控方律师', description: '提出指控并论证' },
+      { typeId: 'ENFJ', roleName: '辩方律师', description: '为"被告"辩护' },
+    ],
+    specialRules: ['每次发言限时90秒', '证据链需引用", "人身攻击判无效'],
+    initialRelations: { 'ESTJ': 'hostile', 'ENFJ': 'hostile', },
+    timeline: '三审制：开场陈述→自由辩论→结案陈词',
+  },
+  {
+    id: 'roundtable',
+    title: '圆桌会谈',
+    emoji: '🫱🏽‍🫲🏾',
+    description: '多视角圆桌会谈，先各自陈述再交叉讨论',
+    background: '一间温暖的圆桌会议室，桌上摆放着热茶',
+    roles: [
+      { typeId: 'ENFJ', roleName: '主持人', description: '引导话题，平衡发言机会' },
+    ],
+    specialRules: ['每人先做1分钟立场陈述', '后续自由交叉提问'],
+    initialRelations: {},
+    timeline: '立场陈述→交叉提问→自由讨论→总结共识',
+  },
+  {
+    id: 'talkshow',
+    title: '脱口秀大会',
+    emoji: '🎤',
+    description: '轻松诙谐的脱口秀风格，每个人格上台用幽默的方式表达观点',
+    background: '聚光灯下的脱口秀舞台，台下坐满观众',
+    roles: [
+      { typeId: 'ENTP', roleName: '主持人', description: '串场吐槽，点评每位选手的表现' },
+    ],
+    specialRules: ['幽默度是重要评分标准', '允许3次"打断"机会'],
+    initialRelations: {},
+    timeline: '单人演出→观众互动→互相吐槽→最佳段子评选',
+  },
+  {
+    id: 'street',
+    title: '街头对谈',
+    emoji: '🏙️',
+    description: '随机偶遇的街头对话，随意自然不受框架约束',
+    background: '城市街角的咖啡馆外，行人来来往往',
+    roles: [],
+    specialRules: ['没有规则就是最大的规则', '说什么都可以，但要保持尊重'],
+    initialRelations: {},
+    timeline: '自然流动，无固定流程',
+  },
+]
