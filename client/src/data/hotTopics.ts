@@ -28,7 +28,7 @@ export interface HotTopic {
   proPoints: HotTopicPoint[]
   /** 反对/反方观点 */
   conPoints: HotTopicPoint[]
-  /** 适合引用这些人���（按认知风格分配） */
+  /** 适合引用这些人格（按认知风格分配） */
   types: string[]
   /** 来源（报道/事件名） */
   source: string

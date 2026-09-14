@@ -489,7 +489,7 @@ export async function generateArenaSpeech(
           : undefined,
         ownSpeechCount,
         recentHistory,
-        // v31：注入人格当前状态 + 持久记忆，让辩手带着「此刻的感受」与「你们之间的过���」发言
+        // v31：注入人格当前状态 + 持久记忆，让辩手带着「此刻的感受」与「你们之间的过往」发言
         state: persona?.state,
         memory: persona?.memory,
       }) as unknown as LLMMessage[]

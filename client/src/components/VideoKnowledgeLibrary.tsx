@@ -218,7 +218,7 @@ export function VideoKnowledgeLibrary() {
               placeholder={'粘贴视频文案或字幕文字…\n\n（提示：抖音视频右下角「全文」可复制文案；或用外部转录工具把视频转成文字后粘贴）'}
               rows={4}
               className="input w-full resize-y text-sm"
-              aria-label="粘贴视��文案"
+              aria-label="粘贴视频文案"
             />
             <div className="flex justify-end mt-1.5">
               <button onClick={handlePasteImport} disabled={importing || !text.trim()} className="btn btn-primary btn-sm btn-sheen" aria-label="导入粘贴内容">
