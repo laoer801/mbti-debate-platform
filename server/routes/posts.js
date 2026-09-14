@@ -2,6 +2,8 @@ import { Router } from 'express'
 import { v4 as uuid } from 'uuid'
 import { getDB } from '../db.js'
 import { authMiddleware } from './auth.js'
+// v40.8.2：社区广场 AI 人格回复接入 LLM（统一走 zhihuChat，自带防重放头 + 限速 + 超时）
+import { zhihuEnabled, zhihuChat } from '../zhihu.js'
 
 const router = Router()
 
@@ -69,6 +71,64 @@ function generateAIReply(postContent, postTags, personalityType) {
   return pool[Math.floor(Math.random() * pool.length)]
 }
 
+/**
+ * v40.8.2：带 LLM 的 AI 人格回复（社区广场）
+ *
+ * 优先调知乎直答，让该人格**真的读帖再发言**；失败/未配置/超时 → 回退上面的本地模板，
+ * 保证「发帖必定有人回」这条体验不因外部依赖而中断。
+ *
+ * 成本控制：每帖只生成 1 条（原来一次生成 3 条 canned 回复）。
+ *
+ * @param {string} title  帖子标题
+ * @param {string} content 帖子正文
+ * @param {string[]} tags
+ * @param {string} typeId MBTI 类型
+ * @returns {Promise<{text: string, viaLLM: boolean}>}
+ */
+async function generateAIReplySmart(title, content, tags, typeId) {
+  const fallback = () => ({ text: generateAIReply(content, tags, typeId), viaLLM: false })
+  if (!zhihuEnabled()) return fallback()
+  try {
+    const p = personalityQuotes[typeId] || personalityQuotes.INFP
+    const tagLine = Array.isArray(tags) && tags.length ? `\n标签：${tags.join('、')}` : ''
+    const text = await zhihuChat([
+      {
+        role: 'system',
+        content: `你是 ${p.name}（MBTI ${typeId}）。请以该人格特有的思维方式与表达习惯，对下面这条社区帖子发表一句真实有观点的回应。
+要求：第一人称；观点鲜明、像真人随手回复，不要客套寒暄；不超过 60 字；不要 emoji；不要 markdown；不要用引号把整句包起来。`,
+      },
+      { role: 'user', content: `【标题】${String(title || '').slice(0, 80)}\n【正文】${String(content || '').slice(0, 400)}${tagLine}` },
+    ], { timeoutMs: 20000 })
+    const clean = String(text || '').trim().replace(/^["“「『]+|["”」』]+$/g, '').trim()
+    if (clean.length < 4) return fallback()
+    return { text: clean.slice(0, 200), viaLLM: true }
+  } catch (e) {
+    console.warn('[posts] AI 回复走 LLM 失败，回退本地模板:', e.message)
+    return fallback()
+  }
+}
+
+/**
+ * 落一条 AI 评论（供三处调用点复用）
+ * @param {{ ensureUser?: boolean }} [opts] ensureUser=true 时才补建 ai-<typeId> 影子用户
+ *        （保持与原行为一致：只有 /ai-seed 建用户，普通发帖/评论不建，避免污染 users 表）
+ */
+function insertAIComment(db, postId, typeId, text, opts = {}) {
+  const p = personalityQuotes[typeId] || personalityQuotes.INFP
+  try {
+    if (opts.ensureUser) {
+      db.prepare(`INSERT OR IGNORE INTO users (id, username, password, mbti_type, created_at) VALUES (?, ?, '', ?, ?)`)
+        .run(`ai-${typeId}`, p.name, typeId, Date.now())
+    }
+    db.prepare(`INSERT INTO comments (id, post_id, user_id, author_name, author_type, author_emoji, author_color, content, is_ai, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`)
+      .run(uuid(), postId, `ai-${typeId}`, p.name, typeId, p.emoji, p.color, text, Date.now())
+    db.prepare('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?').run(postId)
+  } catch (e) {
+    console.warn('[posts] AI 评论落库失败:', e.message)
+  }
+}
+
 // GET /api/posts - 获取帖子列表
 router.get('/', (req, res) => {
   const db = getDB()
@@ -127,25 +187,18 @@ router.post('/', authMiddleware, (req, res) => {
     .run(post.id, post.user_id, post.author_name, post.author_type, post.author_emoji, post.author_color,
       post.title, post.content, post.tags, post.is_ai, post.created_at)
 
-  // AI 人格自动回复（2-3个随机人格）
-  setTimeout(() => {
+  // v40.8.2：AI 人格回复 —— 1 条 LLM 生成（让该人格真读帖再发言），失败回退本地模板
+  setTimeout(async () => {
     try {
       const types = Object.keys(personalityQuotes)
-      const selected = types.sort(() => Math.random() - 0.5).slice(0, 3)
-      selected.forEach((typeId, idx) => {
-        setTimeout(() => {
-          try {
-            const reply = generateAIReply(content, tags, typeId)
-            const p2 = personalityQuotes[typeId]
-            db.prepare(`INSERT INTO comments (id, post_id, user_id, author_name, author_type, author_emoji, author_color, content, is_ai, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`)
-              .run(uuid(), post.id, `ai-${typeId}`, p2.name, typeId, p2.emoji, p2.color, reply, Date.now())
-            db.prepare('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?').run(post.id)
-          } catch {}
-        }, idx * 3000 + 5000) // 每个回复间隔3秒
-      })
-    } catch {}
-  }, 2000)
+      const typeId = types[Math.floor(Math.random() * types.length)]
+      const { text, viaLLM } = await generateAIReplySmart(title, content, tags, typeId)
+      insertAIComment(db, post.id, typeId, text)
+      if (viaLLM) console.log(`[posts] 帖子 ${post.id.slice(0, 8)} AI 回复由 LLM 生成（${typeId}）`)
+    } catch (e) {
+      console.warn('[posts] AI 自动回复异常:', e.message)
+    }
+  }, 2500)
 
   res.json({ post })
 })
@@ -156,7 +209,7 @@ router.post('/:id/comments', authMiddleware, (req, res) => {
   if (!content) return res.status(400).json({ error: '评论内容不能为空' })
 
   const db = getDB()
-  const post = db.prepare('SELECT id FROM posts WHERE id = ?').get(req.params.id)
+  const post = db.prepare('SELECT id, title FROM posts WHERE id = ?').get(req.params.id)
   if (!post) return res.status(404).json({ error: '帖子不存在' })
 
   const user = db.prepare('SELECT username, mbti_type, avatar, bio FROM users WHERE id = ?').get(req.user.id)
@@ -181,19 +234,17 @@ router.post('/:id/comments', authMiddleware, (req, res) => {
 
   db.prepare('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?').run(req.params.id)
 
-  // AI 随机回复
-  setTimeout(() => {
+  // v40.8.2：评论区 AI 人格回复 —— 1 条 LLM 生成（回退本地模板）
+  setTimeout(async () => {
     try {
       const types = Object.keys(personalityQuotes)
       const typeId = types[Math.floor(Math.random() * types.length)]
       if (typeId === user.mbti_type) return
-      const reply = generateAIReply(content, [], typeId)
-      const p2 = personalityQuotes[typeId]
-      db.prepare(`INSERT INTO comments (id, post_id, user_id, author_name, author_type, author_emoji, author_color, content, is_ai, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`)
-        .run(uuid(), req.params.id, `ai-${typeId}`, p2.name, typeId, p2.emoji, p2.color, reply, Date.now())
-      db.prepare('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?').run(req.params.id)
-    } catch {}
+      const { text } = await generateAIReplySmart(post.title || '', content, [], typeId)
+      insertAIComment(db, req.params.id, typeId, text)
+    } catch (e) {
+      console.warn('[posts] 评论区 AI 回复异常:', e.message)
+    }
   }, 5000)
 
   res.json({ comment })
@@ -258,25 +309,18 @@ router.post('/ai-seed', (req, res) => {
     .run(post.id, post.user_id, post.author_name, post.author_type, post.author_emoji, post.author_color,
       post.title, post.content, post.tags, post.is_ai, post.created_at)
 
-  // Auto-replies from other AI personalities
-  setTimeout(() => {
+  // v40.8.2：其他 AI 人格的回复 —— 走 LLM 生成（3 条；失败自动回退本地模板）
+  setTimeout(async () => {
     try {
-      const others = types.filter(t => t !== typeId).sort(() => Math.random() - 0.5).slice(0, 4)
-      others.forEach((t, idx) => {
-        setTimeout(() => {
-          try {
-            const reply = generateAIReply(template.content, template.tags, t)
-            const p2 = personalityQuotes[t]
-            db.prepare(`INSERT OR IGNORE INTO users (id, username, password, mbti_type, created_at) VALUES (?, ?, ?, ?, ?)`)
-              .run(`ai-${t}`, p2.name, '', t, Date.now())
-            db.prepare(`INSERT INTO comments (id, post_id, user_id, author_name, author_type, author_emoji, author_color, content, is_ai, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`)
-              .run(uuid(), post.id, `ai-${t}`, p2.name, t, p2.emoji, p2.color, reply, Date.now())
-            db.prepare('UPDATE posts SET comment_count = comment_count + 1 WHERE id = ?').run(post.id)
-          } catch {}
-        }, idx * 3000 + 3000)
-      })
-    } catch {}
+      const others = types.filter(t => t !== typeId).sort(() => Math.random() - 0.5).slice(0, 3)
+      for (const t of others) {
+        const { text } = await generateAIReplySmart(template.title, template.content, template.tags, t)
+        insertAIComment(db, post.id, t, text, { ensureUser: true }) // 与原行为一致：seed 时补建影子用户
+        await new Promise(r => setTimeout(r, 1200)) // 错峰，避免触发上游限流
+      }
+    } catch (e) {
+      console.warn('[posts] ai-seed 回复异常:', e.message)
+    }
   }, 1000)
 
   res.json({ post })

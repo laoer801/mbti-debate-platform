@@ -106,7 +106,10 @@ if (uid) {
   if (pid) { cleanup.push({ t: 'post', id: pid }); await tidy(13000) }
   const d = await req('GET', `/api/posts/${pid}`)
   const ai = (d.data?.comments || []).filter(c => c.is_ai)
-  rec('社区广场', '发帖后 AI 回复', '本地', ai.length > 0, `AI 回复 ${ai.length} 条，提及探针=${ai.some(c => String(c.content).includes(NONCE))} 「${short(ai[0]?.content, 40)}」`)
+  const hit = ai.some(c => String(c.content).includes(NONCE))
+  // v40.8.2 起：社区广场 AI 回复改走 LLM（模板仅兜底）→ 提及探针即证明走了 LLM
+  rec('社区广场', '发帖后 AI 回复', 'LLM', ai.length > 0 && hit,
+    `AI 回复 ${ai.length} 条，提及探针=${hit} 「${short(ai[0]?.content, 40)}」`)
 }
 
 // ── PK：AI 对手发言（LLM） ─────────────────────────────────

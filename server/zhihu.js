@@ -71,6 +71,51 @@ export async function zhihuFetch(url, opts = {}) {
 }
 
 // ============================================================
+// 直答对话（生成式）—— 全项目统一入口
+// ============================================================
+/**
+ * 调知乎直答 /v1/chat/completions 做一次生成。
+ *
+ * ⚠️ 必须带 `X-Request-Timestamp`：知乎用该头做防重放，
+ *    缺了会返回 **401 `invalid_api_key`**（报错极具误导性，看着像密钥错，其实是缺头）。
+ *    本函数是唯一入口 → 新增任何 LLM 功能都走这里，就不会再犯这个错。
+ *
+ * @param {Array<{role:string,content:string}>} messages
+ * @param {{ model?: string, timeoutMs?: number }} [opts]
+ * @returns {Promise<string>} 生成文本（已 trim）
+ */
+export async function zhihuChat(messages, opts = {}) {
+  if (!zhihuEnabled()) throw new Error('ZHIHU_ACCESS_SECRET 未配置，直答不可用')
+  if (!rpmAllow()) throw new Error('知乎 API 速率超限，请稍后再试')
+  const model = opts.model || ZH_MODEL_FAST
+  const timeoutMs = opts.timeoutMs || 25000
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(ZH_BASE_CHAT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ZHIHU_ACCESS_SECRET}`,
+        'X-Request-Timestamp': `${Math.floor(Date.now() / 1000)}`,
+      },
+      body: JSON.stringify({ model, messages, stream: false }),
+      signal: ctrl.signal,
+    })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`直答 ${res.status}: ${body.slice(0, 120)}`)
+    }
+    const data = await res.json()
+    const text = (data?.choices?.[0]?.message?.content || data?.content || '').trim()
+    if (!text) throw new Error('直答返回空内容')
+    return text
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// ============================================================
 // v40.5：用户内容 / 收藏 / 收藏夹 API 封装（用于知识库 + 学习模块）
 // ============================================================
 
