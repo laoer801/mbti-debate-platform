@@ -723,3 +723,63 @@ body {
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* ====== v40.6.6 PK 宠物战斗 · 屏幕级瞬时动画 ======
+   伤害输出瞬间：全屏震屏 + 阵营色闪光；暴击/大招追加环形冲击波；击倒触发强震 */
+@keyframes kbScreenShake {
+  0%   { transform: translate(0, 0); }
+  20%  { transform: translate(-7px, 4px); }
+  40%  { transform: translate(6px, -4px); }
+  60%  { transform: translate(-4px, 2px); }
+  80%  { transform: translate(3px, -2px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes kbScreenShakeStrong {
+  0%   { transform: translate(0, 0); }
+  12%  { transform: translate(-13px, 7px) rotate(-0.5deg); }
+  32%  { transform: translate(13px, -7px) rotate(0.5deg); }
+  52%  { transform: translate(-9px, 5px); }
+  72%  { transform: translate(7px, -5px); }
+  88%  { transform: translate(-3px, 2px); }
+  100% { transform: translate(0, 0); }
+}
+@keyframes kbFlashFade {
+  0%   { opacity: 0.9; }
+  100% { opacity: 0; }
+}
+@keyframes kbBurstRing {
+  0%   { transform: scale(0.15); opacity: 1; }
+  100% { transform: scale(2.6); opacity: 0; }
+}
+@keyframes kbSparks {
+  0%   { transform: translate(-50%, -50%) scale(0.4) rotate(0deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1.6) rotate(25deg); opacity: 0; }
+}
+.kb-shake { animation: kbScreenShake 0.32s ease-out; }
+.kb-shake-strong { animation: kbScreenShakeStrong 0.55s ease-out; }
+.kb-fx-overlay {
+  position: fixed; inset: 0; z-index: 80; pointer-events: none; overflow: hidden;
+}
+.kb-fx-flash {
+  position: absolute; inset: 0;
+  background: radial-gradient(circle at 50% 42%,
+    color-mix(in srgb, var(--fx-color, #ffffff) 45%, transparent) 0%,
+    color-mix(in srgb, var(--fx-color, #ffffff) 14%, transparent) 34%,
+    transparent 70%);
+  animation: kbFlashFade 0.42s ease-out forwards;
+}
+.kb-fx-ring {
+  position: absolute; left: 50%; top: 46%; width: 200px; height: 200px;
+  margin: -100px 0 0 -100px; border-radius: 50%;
+  border: 3px solid var(--fx-color, #ffffff);
+  box-shadow: 0 0 28px var(--fx-color, #ffffff), inset 0 0 26px var(--fx-color, #ffffff);
+  animation: kbBurstRing 0.5s ease-out forwards;
+}
+.kb-fx-sparks {
+  position: absolute; left: 50%; top: 46%; width: 300px; height: 300px;
+  margin: -150px 0 0 -150px; opacity: 0;
+  background:
+    radial-gradient(circle, var(--fx-color, #fff) 0 2px, transparent 3px) 0 0 / 46px 46px,
+    radial-gradient(circle, var(--fx-color, #fff) 0 2px, transparent 3px) 23px 23px / 46px 46px;
+  animation: kbSparks 0.55s ease-out 0.05s forwards;
+}

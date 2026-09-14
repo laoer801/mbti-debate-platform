@@ -98,3 +98,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.suo
+
+# ============ 视频模块（暂不入库，保留本地） ============
+video-intro/
+/video-intro

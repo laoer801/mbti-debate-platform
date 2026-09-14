@@ -55,6 +55,11 @@ export interface SceneTemplate {
   specialRules: string[]
   initialRelations: Record<string, 'hostile' | 'friendly' | 'neutral'>
   timeline: string
+  // v40.6.7 场景玩法：mode（free=圆桌/脱口秀式自由讨论无正反；adversarial=正反辩论…）+ 场景主题池 + 玩法提示
+  mode?: 'free' | 'roundRobin' | 'adversarial' | 'socratic' | 'duel' | 'dialogue'
+  goal?: string
+  topicPool?: string[]
+  playHint?: string
 }
 
 export interface Message {

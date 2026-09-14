@@ -21,6 +21,15 @@ import { petRoutes } from './routes/pets.js'
 import { userDataRoutes } from './routes/user-data.js'
 import { adminRoutes } from './routes/admin.js'
 import { newsRoutes } from './routes/news.js'
+// v40 新增 4 个路由模块
+import { personaRoutes } from './routes/persona.js'
+import { judgeRoutes } from './routes/judge.js'
+import { masterRoutes } from './routes/master.js'
+import { cloudKbRoutes } from './routes/cloudkb.js'
+import { zhihuRoutes } from './routes/zhihu.js'
+// v40.4 新增：多人语音房 + 实力分匹配
+import { voiceRoomRoutes, ensureVoiceTablesSafe } from './routes/voice-room.js'
+import { ratingRoutes, ensureRatingTablesSafe } from './routes/rating.js'
 import { JWT_SECRET } from './secret.js'
 import { onlineUsers, broadcastPresence } from './presence.js'
 import jwt from 'jsonwebtoken'
@@ -92,6 +101,15 @@ app.use('/api/pets', petRoutes)
 app.use('/api/user', userDataRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/news', newsRoutes)
+// v40 新增路由
+app.use('/api/persona', personaRoutes)
+app.use('/api/judge', judgeRoutes)
+app.use('/api/master', masterRoutes)
+app.use('/api/cloudkb', cloudKbRoutes)
+app.use('/api/zhihu', zhihuRoutes)
+// v40.4 新增：多人语音房 + TrueSkill 匹配
+app.use('/api/voice-room', voiceRoomRoutes)
+app.use('/api/rating', ratingRoutes)
 
 // v35 内容管理公开读取（前端启动时拉取覆盖本地；写入走 /api/admin 需要管理员）
 app.get('/api/content/topics', (req, res) => {
@@ -168,9 +186,33 @@ io.on('connection', (socket) => {
     socket.leave('pk-lobby')
   })
 
+  // v40.4 多人语音房事件
+  socket.on('join-voice-room', (roomId) => {
+    socket.join(`voice-room-${roomId}`)
+    console.log(`${socket.id} joined voice room ${roomId}`)
+  })
+  socket.on('leave-voice-room', (roomId) => {
+    socket.leave(`voice-room-${roomId}`)
+  })
+
   socket.on('join-room', (roomId) => {
     socket.join(`pk-room-${roomId}`)
     console.log(`${socket.id} joined room ${roomId}`)
+    // v40.6.2：进房即回传当前参与者 → 前端据此自动开赛/刷新（修复自己进已满 waiting 房不开始的 bug）
+    try {
+      const db = getDB()
+      const participants = db.prepare(`
+        SELECT p.*, u.username, u.mbti_type, u.avatar
+        FROM pk_participants p
+        LEFT JOIN users u ON p.user_id = u.id
+        WHERE p.room_id = ?
+      `).all(roomId)
+      if (participants.length > 0) {
+        socket.emit('participant-joined', participants)
+      }
+    } catch (e) {
+      console.warn('join-room 回传参与者失败:', e.message)
+    }
   })
 
   socket.on('leave-room', (roomId) => {
@@ -200,6 +242,10 @@ io.on('connection', (socket) => {
 
 // Initialize database and start server
 initDB().then(() => {
+  // v40.4: 确保 v40.4 新表（voice_rooms / player_ratings）在 initDB 后才创建
+  try { ensureVoiceTablesSafe() } catch (e) { console.error('[voice-room] ensureVoiceTablesSafe:', e.message) }
+  try { ensureRatingTablesSafe() } catch (e) { console.error('[rating] ensureRatingTablesSafe:', e.message) }
+
   server.listen(PORT, () => {
     console.log(`MBTI Debate Server running on http://localhost:${PORT}`)
     console.log(`WebSocket ready`)

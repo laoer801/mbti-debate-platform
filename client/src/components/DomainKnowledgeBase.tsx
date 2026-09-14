@@ -59,6 +59,17 @@ export function DomainKnowledgeBase() {
     refresh()
   }, [refresh])
 
+  // v40.5：监听云端 KB 变化（知乎导入等 → v40.6 起会同时刷新本视图快照）
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ source: string; added?: number }>).detail
+      console.info(`[DomainKB] 云端 KB 变化（${detail?.source} +${detail?.added ?? 0}）→ 刷新领域 KB`)
+      refresh()
+    }
+    window.addEventListener('mbti:cloudkb-changed', handler as EventListener)
+    return () => window.removeEventListener('mbti:cloudkb-changed', handler as EventListener)
+  }, [refresh])
+
   useEffect(() => {
     if (!selected) return
     getDocuments(selected.id).then(setDocs)

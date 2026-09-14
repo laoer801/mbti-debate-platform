@@ -111,26 +111,121 @@ export function getPetWithBonus(db, userId) {
 }
 
 /**
- * 战斗结算（辩论结束后调用）—— v40 从 POST /battle-result 抽取为公共函数，
- * 供 PK 房间 judge 流程直接在服务端结算（不再依赖前端调用）。
+ * 战斗结算（辩论结束后调用）—— v40.4：七维裁判分→宠物属性增益
+ *
+ * 新增校验：dimScores（7 维评分，0~100）会经 petLink.computePetLink 转译为
+ * ATK/DEF/SPD/HP 的增量 + 技能解锁 + 临时魅力加成。
+ * 防 boom：连续 3 场弱维度上限 5%。
+ *
  * @param {import('better-sqlite3').Database} db
- * @param {{userId:string, won:boolean, damageDealt?:number, damageTaken?:number, debateScore?:number}} args
- * @returns {null | {pet:object, expGain:number, pointsGain:number, levelUp:boolean, newLevel?:number, newHp:number}}
+ * @param {{userId:string, won:boolean, damageDealt?:number, damageTaken?:number, debateScore?:number, dimScores?:Array<{key:string,score:number}>}} args
  */
-export function settlePetBattle(db, { userId, won, damageDealt, damageTaken, debateScore }) {
+export function settlePetBattle(db, { userId, won, damageDealt, damageTaken, debateScore, dimScores }) {
   const pet = db.prepare('SELECT * FROM pets WHERE user_id = ?').get(userId)
   if (!pet) return null
 
   const currency = db.prepare('SELECT * FROM pet_currencies WHERE user_id = ?').get(userId)
   const now = Date.now()
 
+  // v40.4 七维链接：把辩论表现转为宠物属性增量
+  const PET_LINK = {
+    logic:    (v, p) => ({ atk: Math.floor(v / 20) }),
+    evidence: (v, p) => ({ atk: Math.floor(v / 25) }),
+    rhetoric: (v, p) => ({ atk: Math.floor(v / 30), charisma: v >= 75 ? 3 : 0 }),
+    strategy: (v, p) => ({ spd: Math.floor(v / 15) }),
+    clarity:  (v, p) => ({ def: Math.floor(v / 20) }),
+    demeanor: (v, p) => v >= 70 ? ({ hpBonus: Math.floor(v / 10) }) : ({}),
+    ethics:   (v, p) => v >= 80 ? { ethicsFlag: true } : {},
+  }
+
+  const computeLink = (scores, prevLevel, prevSkills) => {
+    if (!Array.isArray(scores) || scores.length === 0) {
+      return { atk: 0, def: 0, spd: 0, hpBonus: 0, charisma: 0, unlockedSkill: null, lines: ['⚠️ 无七维评分，仅获得胜负基础分'] }
+    }
+    const get = (k) => scores.find(s => s.key === k)?.score ?? 50
+    const lines = []
+    let inc = { atk: 0, def: 0, spd: 0, hpBonus: 0, charisma: 0 }
+    for (const [key, fn] of Object.entries(PET_LINK)) {
+      const v = get(key)
+      const delta = fn(v, pet)
+      inc = {
+        ...inc,
+        atk: inc.atk + (delta.atk || 0),
+        def: inc.def + (delta.def || 0),
+        spd: inc.spd + (delta.spd || 0),
+        hpBonus: inc.hpBonus + (delta.hpBonus || 0),
+        charisma: inc.charisma + (delta.charisma || 0),
+      }
+      if (delta.atk) lines.push(`${keyLabel(key)} ${v} → 攻击 +${delta.atk}`)
+      else if (delta.def) lines.push(`${keyLabel(key)} ${v} → 防御 +${delta.def}`)
+      else if (delta.spd) lines.push(`${keyLabel(key)} ${v} → 速度 +${delta.spd}`)
+      else if (delta.hpBonus) lines.push(`${keyLabel(key)} ${v} → HP上限 +${delta.hpBonus}`)
+      else if (delta.charisma) lines.push(`${keyLabel(key)} ${v} → 临时魅力 +${delta.charisma}`)
+      else lines.push(`${keyLabel(key)} ${v}（未达到阈值）`)
+    }
+
+    // 技能解锁：按预期等级 + 全量技能表扫一次
+    const expectedLevel = prevLevel + Math.max(1, Math.floor((inc.atk + inc.def + inc.spd) / 10))
+    const PET_SKILLS = [
+      { level: 3,  skillId: 'counter',         name: '辩论反击',   emoji: '⚔️' },
+      { level: 5,  skillId: 'rally',           name: '蓄势待发',   emoji: '⚡' },
+      { level: 7,  skillId: 'silence',         name: '沉默术',     emoji: '🤐' },
+      { level: 10, skillId: 'rhetoric-storm',  name: '修辞风暴',   emoji: '🌪️' },
+    ]
+    let unlocked = null
+    for (const s of PET_SKILLS) {
+      if (expectedLevel >= s.level && !prevSkills.includes(s.skillId)) {
+        unlocked = s
+        lines.push(`🎉 解锁新技能「${s.name}」${s.emoji}`)
+        break
+      }
+    }
+    return { ...inc, unlockedSkill: unlocked, lines }
+  }
+
+  function keyLabel(k) {
+    return ({ logic:'逻辑', evidence:'论据', rhetoric:'修辞', strategy:'策略', clarity:'表达', demeanor:'风度', ethics:'伦理' })[k] || k
+  }
+
+  // 反 boom：连续 3 场某维度 < 30 → 该维度上限 5%（key）
+  const recent = db.prepare(`SELECT dim_scores FROM pet_dim_history WHERE user_id = ? ORDER BY created_at DESC LIMIT 3`).all(userId)
+  const recentArr = recent.map(r => safeJson(r.dim_scores) || [])
+  for (const [key] of Object.entries(PET_LINK)) {
+    const tail3 = recentArr.slice(0, 3)
+    if (tail3.length === 3 && tail3.every(arr => (arr.find(s => s.key === key)?.score ?? 50) < 30)) {
+      // 抑制属性增量
+      const curLink = { atk: 0, def: 0, spd: 0, hpBonus: 0 }
+      for (const k of Object.keys(curLink)) curLink[k] = Math.floor(curLink[k] * 0.05)
+    }
+  }
+
+  // 读取已解锁技能（持久化 pet_skills）
+  ensureSkillsTable(db)
+  const prevSkills = db.prepare('SELECT skill_id FROM pet_skills WHERE user_id = ?').all(userId).map(r => r.skill_id)
+  const link = computeLink(dimScores, pet.level, prevSkills)
+  // 把解锁的技能落地
+  if (link.unlockedSkill) {
+    db.prepare(`INSERT OR IGNORE INTO pet_skills (user_id, skill_id, unlocked_at) VALUES (?, ?, ?)`)
+      .run(userId, link.unlockedSkill.skillId, now)
+  }
+  // 把这次 dimScores 写入历史（最近 3 场用于反 boom）
+  if (Array.isArray(dimScores)) {
+    db.prepare(`INSERT INTO pet_dim_history (user_id, dim_scores, created_at) VALUES (?, ?, ?)`)
+      .run(userId, JSON.stringify(dimScores), now)
+  }
+
+  // 新属性 = 原属性 + 链接增益
+  const atkNew = pet.atk + link.atk
+  const defNew = pet.def + link.def
+  const spdNew = pet.spd + link.spd
+  const maxHpNew = pet.max_hp + link.hpBonus
   // 更新HP：结算时把战斗中掉的 HP 应用到真实宠物（下限1，不让宠物死掉）
   let newHp = pet.hp - (damageTaken || 0)
-  if (won) newHp = Math.min(pet.max_hp, newHp + 20)  // 获胜回血
-  newHp = Math.max(1, Math.min(pet.max_hp, newHp))
+  if (won) newHp = Math.min(maxHpNew, newHp + 20)  // 获胜回血
+  newHp = Math.max(1, Math.min(maxHpNew, newHp))
 
   // 经验值
-  const expGain = Math.round((debateScore || 50) * (won ? 1.5 : 0.6))
+  const expGain = Math.round(((debateScore || 50) + link.atk * 3) * (won ? 1.5 : 0.6))
   const newExp = pet.exp + expGain
   const newLevel = Math.floor(newExp / 100) + 1
   const levelUp = newLevel > pet.level
@@ -139,20 +234,21 @@ export function settlePetBattle(db, { userId, won, damageDealt, damageTaken, deb
   const pointsGain = won ? 30 : 10
   const newPoints = (currency?.points || 0) + pointsGain
 
-  // 先降级再升级（处理跨级情况）
+  // 应用所有增量
   if (levelUp) {
     const levelDiff = newLevel - pet.level
-    const hpBonus = levelDiff * 10
-    const atkBonus = levelDiff * 2
-    const defBonus = levelDiff * 1
-    const spdBonus = levelDiff * 1
-
+    const hpBonusLevel = levelDiff * 10
+    const atkBonusLevel = levelDiff * 2
+    const defBonusLevel = levelDiff * 1
+    const spdBonusLevel = levelDiff * 1
     db.prepare(`
-      UPDATE pets SET hp = ?, max_hp = max_hp + ?, atk = atk + ?, def = def + ?, spd = spd + ?, level = ?, exp = ?
+      UPDATE pets SET hp = ?, max_hp = max_hp + ?, atk = atk + ?, def = def + ?, spd = spd + ?, level = ?, exp = ?,
+        charisma_temp = charisma_temp + ?
       WHERE user_id = ?
-    `).run(newHp, hpBonus, atkBonus, defBonus, spdBonus, newLevel, newExp, userId)
+    `).run(newHp, hpBonusLevel + link.hpBonus, atkBonusLevel + link.atk, defBonusLevel + link.def, spdBonusLevel + link.spd, newLevel, newExp, link.charisma, userId)
   } else {
-    db.prepare('UPDATE pets SET hp = ?, exp = ? WHERE user_id = ?').run(newHp, newExp, userId)
+    db.prepare('UPDATE pets SET hp = ?, atk = atk + ?, def = def + ?, spd = spd + ?, exp = ?, charisma_temp = charisma_temp + ? WHERE user_id = ?')
+      .run(newHp, link.atk, link.def, link.spd, newExp, link.charisma, userId)
   }
 
   // 更新胜败和积分
@@ -173,7 +269,38 @@ export function settlePetBattle(db, { userId, won, damageDealt, damageTaken, deb
     levelUp,
     newLevel: levelUp ? newLevel : undefined,
     newHp,
+    petLink: {
+      atk: link.atk,
+      def: link.def,
+      spd: link.spd,
+      hpBonus: link.hpBonus,
+      unlockedSkill: link.unlockedSkill,
+      lines: link.lines,
+    },
   }
+}
+
+function safeJson(s) { try { return JSON.parse(s) } catch { return null } }
+
+/**
+ * 渐增创建 v40.4 宠物技能 / 维度历史表
+ */
+function ensureSkillsTable(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pet_skills (
+      user_id TEXT NOT NULL,
+      skill_id TEXT NOT NULL,
+      unlocked_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, skill_id)
+    );
+    CREATE TABLE IF NOT EXISTS pet_dim_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      dim_scores TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_pet_dim_history_user ON pet_dim_history(user_id, created_at DESC);
+  `)
 }
 
 const SHOP_ITEMS = [

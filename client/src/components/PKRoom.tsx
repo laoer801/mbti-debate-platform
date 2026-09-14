@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, type CSSProperties } from 'react'
 import clsx from 'clsx'
-import { Mic, Send, Timer, Swords, Trophy, LogOut, ChevronRight } from 'lucide-react'
+import { Mic, Send, Timer, Swords, Trophy, LogOut, ChevronRight, Sparkles } from 'lucide-react'
 import { PKRoom as PKRoomType, PKParticipant, PKMove, PKPhase, PKJudgeResult, JudgePlayerScore, BattleState, PetBattleEvent } from '../types'
 import { useAuth } from '../hooks/useAuth'
 import { useSocket } from '../hooks/useSocket'
@@ -52,15 +52,23 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
   const [loadError, setLoadError] = useState('')
   const [mySide, setMySide] = useState<'pro' | 'con'>('pro')
   const [voiceTip, setVoiceTip] = useState<{ username: string; text: string } | null>(null)
+  const [aiTyping, setAiTyping] = useState<string | null>(null) // v40.6.1：AI 正在输入
+  const [turnUserId, setTurnUserId] = useState<string | null>(null) // v40.6.3：当前发言权（AI 对战回合制）
   // v40 服务器权威宠物战斗：擂台快照 + 最新攻击事件
   const [battleStates, setBattleStates] = useState<BattleState[]>([])
   const [battleEvent, setBattleEvent] = useState<PetBattleEvent | null>(null)
   const battleSeqRef = useRef(0)
+  // v40.6.6：屏幕级战斗反馈（震屏 + 闪光/冲击环）
+  const [battleFx, setBattleFx] = useState<{ id: number; kind: 'hit' | 'crit' | 'ko'; color: string } | null>(null)
+  const screenRootRef = useRef<HTMLDivElement>(null)
   const movesEndRef = useRef<HTMLDivElement>(null)
   const voiceTipTimer = useRef<number>(0)
   const socketRef = useSocket()
   const phaseRef = useRef<PKPhase>('waiting')
   const participantsRef = useRef<PKParticipant[]>([])
+  // v40.7.1：AI 连发检测（自动切阶段时等 AI 观点说完）
+  const aiTypingRef = useRef(false)
+  const aiLastMoveRef = useRef(0)
 
   // 同步 ref，供 socket 回调读取最新状态
   useEffect(() => { phaseRef.current = phase }, [phase])
@@ -87,6 +95,7 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
             setPhase(data.room.current_phase as PKPhase)
             setPhaseStartedAt(data.room.phase_started_at || 0)
             setPhaseDuration(data.room.phase_duration || 0)
+            setTurnUserId(data.room.turn_user_id || null) // v40.6.3
           }
           if (data.judgeResult) {
             setJudgeResult(JSON.parse(data.judgeResult.scores || '{}'))
@@ -105,9 +114,10 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
             } catch {}
           }
 
-          // Auto-start if enough participants
+          // v40.6.2：自动开赛——已满员(≥2)且 waiting → 直接进入准备阶段
+          // （修复：此段此前为空注释，导致自己进 AI 房/断线重进永远停在 waiting 不开始）
           if (data.room?.current_phase === 'waiting' && (data.participants?.length >= 2)) {
-            // trigger phase change via API
+            handlePhaseChange('preparation')
           }
         }
       } catch (e) {
@@ -184,6 +194,28 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
     }
     const onNewMove = (move: PKMove) => {
       setMoves(prev => [...prev, move])
+      setAiTyping(null) // v40.6.1：AI 回完 → 取消"正在输入"
+      // v40.7.1：AI 影子发言 → 刷新"AI 活跃"时间戳（多句连发中不自动切阶段）
+      if (move.userId && String(move.userId).startsWith('ai__')) {
+        aiTypingRef.current = false
+        aiLastMoveRef.current = Date.now()
+      }
+    }
+    const onAiTyping = (data: { userId: string; username: string; level?: string }) => {
+      // v40.6.1：AI 辩友正在输入提示（消除等待焦虑）
+      setAiTyping(`${data.username || '🤖 AI 辩友'}${data.level ? `（${data.level}）` : ''} 正在输入…`)
+      // v40.7.1：标记 AI 正在连发
+      if (data.userId && String(data.userId).startsWith('ai__')) {
+        aiTypingRef.current = true
+        aiLastMoveRef.current = Date.now()
+      }
+    }
+    const onTurnChanged = (data: { roomId: string; turnUserId: string }) => {
+      // v40.6.3：回合切换 → 轮到谁谁解锁
+      setTurnUserId(data.turnUserId || null)
+      if (data.turnUserId && user?.id && data.turnUserId === user.id) {
+        setAiTyping(null)
+      }
     }
     const onJudgeResult = (data: { scores: PKJudgeResult; winner: string; feedback: string }) => {
       setJudgeResult(data.scores || data)
@@ -213,11 +245,17 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
         if (s.userId === ev.defenderId) return { ...s, hp: ev.defenderHp, damageTaken: s.damageTaken + ev.damage }
         return s
       }))
+      // v40.6.6：伤害瞬间 → 屏幕级动画（攻方阵营色驱动；暴击=冲击环+火花，击倒=强震）
+      const atkSide = participantsRef.current.find(p => p.user_id === ev.attackerId)?.side
+      const atkColor = atkSide === 'con' ? '#e57e7e' : '#6fa3f5'
+      setBattleFx({ id: battleSeqRef.current, kind: ev.knockOut ? 'ko' : ev.crit ? 'crit' : 'hit', color: atkColor })
     }
 
     socket.on('participant-joined', onParticipants)
     socket.on('phase-changed', onPhaseChanged)
     socket.on('new-move', onNewMove)
+    socket.on('ai-typing', onAiTyping)
+    socket.on('pk-turn', onTurnChanged)
     socket.on('judge-result', onJudgeResult)
     socket.on('voice-text', onVoiceText)
     socket.on('battle-init', onBattleInit)
@@ -228,6 +266,8 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
       socket.off('participant-joined', onParticipants)
       socket.off('phase-changed', onPhaseChanged)
       socket.off('new-move', onNewMove)
+      socket.off('ai-typing', onAiTyping)
+      socket.off('pk-turn', onTurnChanged)
       socket.off('judge-result', onJudgeResult)
       socket.off('voice-text', onVoiceText)
       socket.off('battle-init', onBattleInit)
@@ -245,6 +285,12 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
       setTimeLeft(Math.ceil(remaining))
 
       if (remaining <= 0) {
+        // v40.7.1：AI 正在连发观点 → 自动切阶段顺延，等 AI 说完并停顿 2.5s 再切（观点表达完整）
+        const aiBusy = aiTypingRef.current || Date.now() - aiLastMoveRef.current < 2500
+        if (aiBusy) {
+          setTimeLeft(0)
+          return
+        }
         clearInterval(interval)
         advanceToNextPhase()
       }
@@ -305,11 +351,23 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
         body: JSON.stringify({ userId: user?.id, content, moveType: 'speech' }),
       })
-      setInputText('')
-    } catch (e) {
+      setInputText('')    } catch (e) {
       console.error('发送失败', e)
     }
   }, [inputText, roomId, user?.id])
+
+  // v40.7.1：请 AI 继续说（轮到自己但不想打字/想听 AI 更多观点）
+  const handlePokeAI = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('mbti_token')
+      await fetch(`${API}/pk/${roomId}/poke`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        body: JSON.stringify({ userId: user?.id }),
+      })
+    } catch (e) {
+      console.error('请求 AI 发言失败', e)
+    }
+  }, [roomId, user?.id])
 
   const handleVoiceResult = (text: string) => {
     setInputText(prev => prev + (prev ? ' ' : '') + text)
@@ -332,9 +390,23 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
   }
 
   const canSpeak = phase === 'free_debate' || phase === 'opening' || phase === 'closing'
+  // v40.6.3：AI 对战回合制 —— 轮到我 = 发言权在己；真人房 turnUserId 为空 → 维持自由发言
+  const isAiRoom = !!room?.ai_mode
   const isMyTurn = canSpeak && participants.some(p => p.user_id === user?.id)
+    && (!isAiRoom || !turnUserId || turnUserId === user?.id)
 
   const phaseProgress = phaseDuration > 0 ? Math.min(100, ((Date.now() - phaseStartedAt) / 1000 / phaseDuration) * 100) : 0
+
+  // v40.6.6：battleFx → 震屏 class（remove→reflow→add，保证连续攻击能重播）
+  useEffect(() => {
+    const el = screenRootRef.current
+    if (!el) return
+    el.classList.remove('kb-shake', 'kb-shake-strong')
+    if (battleFx) {
+      void el.offsetWidth
+      el.classList.add(battleFx.kind === 'ko' ? 'kb-shake-strong' : 'kb-shake')
+    }
+  }, [battleFx])
 
   if (loading) {
     return (
@@ -356,12 +428,26 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--color-bg)' }}>
+    <div ref={screenRootRef} className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--color-bg)' }}>
+      {/* v40.6.6：宠物伤害屏幕动画 —— 全屏闪光 / 冲击环 / 火花（pointer-events-none 不挡操作） */}
+      {battleFx && (
+        <div className="kb-fx-overlay" key={battleFx.id} style={{ '--fx-color': battleFx.color } as CSSProperties}>
+          <div className="kb-fx-flash" onAnimationEnd={() => setBattleFx(null)} />
+          {battleFx.kind !== 'hit' && <div className="kb-fx-ring" />}
+          {battleFx.kind === 'ko' && <div className="kb-fx-sparks" />}
+        </div>
+      )}
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: 'var(--color-border)' }}>
         <div className="flex items-center gap-3">
-          <button onClick={onLeave} className="p-1.5 rounded-lg hover:opacity-80" style={{ color: 'var(--color-text-secondary)' }}>
+          <button
+            onClick={() => { if (window.confirm('确定退出对局吗？')) onLeave() }}
+            className="p-1.5 rounded-lg flex items-center gap-1 hover:opacity-80"
+            style={{ color: 'var(--color-text-secondary)' }}
+            aria-label="退出对局"
+          >
             <LogOut size={18} />
+            <span className="text-xs hidden sm:inline">退出</span>
           </button>
           <div>
             <h2 className="font-bold text-sm line-clamp-1" style={{ color: 'var(--color-text)' }}>{room?.topic || '加载中...'}</h2>
@@ -403,6 +489,16 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
             <p className="text-xs mt-4 opacity-50" style={{ color: 'var(--color-text-tertiary)' }}>
               当前 {participants.length}/{room?.max_participants || 2} 人
             </p>
+            {/* v40.6.2：真人房等待兜底——没人来就转 AI 对战 */}
+            {!room?.ai_mode && participants.length < 2 && (
+              <button
+                onClick={onLeave}
+                className="mt-5 inline-flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold transition-all hover:scale-105"
+                style={{ background: 'var(--color-bg-secondary)', color: 'var(--color-accent)', border: '1.5px solid var(--color-accent)' }}
+              >
+                <Sparkles size={15} /> 等不到人？返回挑战 AI 辩友
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -433,6 +529,19 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
               <div className="mx-auto max-w-sm px-4 py-2 rounded-xl text-xs animate-fadeIn"
                 style={{ background: 'var(--color-accent-10)', border: '1px solid var(--color-accent)', color: 'var(--color-text-secondary)' }}>
                 🎤 <span className="font-semibold" style={{ color: 'var(--color-text)' }}>{voiceTip.username}</span> 语音转文字：{voiceTip.text}
+              </div>
+            </div>
+          )}
+
+          {/* v40.6.1：AI 辩友正在输入 */}
+          {aiTyping && (
+            <div className="px-4 pt-2">
+              <div className="mx-auto max-w-sm px-4 py-2 rounded-xl text-xs animate-fadeIn"
+                style={{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="typing-dot" style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--color-accent)', display: 'inline-block', animation: 'blink 1s infinite' }} />
+                  {aiTyping}
+                </span>
               </div>
             </div>
           )}
@@ -483,6 +592,13 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
           {/* Input area */}
           {isMyTurn && (
             <div className="p-3 border-t" style={{ borderColor: 'var(--color-border)', background: 'var(--color-bg-secondary)' }}>
+              {/* v40.6.3：回合制轮到你提醒 */}
+              {isAiRoom && (
+                <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold animate-fadeIn" style={{ color: 'var(--color-accent)' }}>
+                  <span className="inline-block w-2 h-2 rounded-full" style={{ background: 'var(--color-accent)', boxShadow: '0 0 6px var(--color-accent)' }} />
+                  🎙️ 轮到你发言
+                </div>
+              )}
               <div className="flex items-end gap-2">
                 <VoiceInput onResult={handleVoiceResult} isRecording={isRecording} setIsRecording={setIsRecording} />
                 <textarea
@@ -512,10 +628,20 @@ export function PKRoom({ roomId, onLeave }: PKRoomProps) {
                 <span className="text-[10px] opacity-40" style={{ color: 'var(--color-text-tertiary)' }}>
                   按Enter发送 / Shift+Enter换行 / 点击🎤语音输入
                 </span>
-                <button onClick={advanceToNextPhase} className="text-xs px-3 py-1 rounded-lg transition-all hover:opacity-80"
-                  style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}>
-                  下一阶段 <ChevronRight size={10} className="inline" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {/* v40.7.1：不想打字 → 让 AI 继续发挥一段 */}
+                  {isAiRoom && (
+                    <button onClick={handlePokeAI} className="text-xs px-3 py-1 rounded-lg transition-all hover:opacity-80"
+                      style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)', border: '1px solid var(--color-accent)' }}
+                      aria-label="请 AI 继续说">
+                      💬 请 AI 继续说
+                    </button>
+                  )}
+                  <button onClick={advanceToNextPhase} className="text-xs px-3 py-1 rounded-lg transition-all hover:opacity-80"
+                    style={{ background: 'var(--color-bg)', color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }}>
+                    下一阶段 <ChevronRight size={10} className="inline" />
+                  </button>
+                </div>
               </div>
             </div>
           )}

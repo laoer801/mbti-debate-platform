@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { mbtiProfiles } from '../data/mbtiProfiles'
 import { personalitySystems } from '../data/personalitySystem'
 import { personaKnowledge, personalityBooks, getBookQuotesByType, PersonalityBook } from '../data/personaKnowledge'
-import { BookOpen, Users, Briefcase, MessageCircle, TrendingUp, Brain, X, Plus, Trash2, BookPlus, GraduationCap, Database, Clapperboard, Newspaper } from 'lucide-react'
+import { BookOpen, Users, Briefcase, MessageCircle, TrendingUp, Brain, X, Plus, Trash2, BookPlus, GraduationCap, Database, Clapperboard, Newspaper, Sparkles, Flame, Search, ChevronDown, ChevronUp, MessageSquareText } from 'lucide-react'
 import { getUserBooks, addUserBook, removeUserBook, pushBooksToCloud } from '../utils/learningStore'
 import type { UserBook } from '../utils/learningStore'
 import { useAuth } from '../hooks/useAuth'
@@ -13,16 +13,31 @@ import { DomainKnowledgeBase } from './DomainKnowledgeBase'
 import { VideoKnowledgeLibrary } from './VideoKnowledgeLibrary'
 // v38：每日新闻学习（RSS 抓取 → RAG → 辩论/对话引用）——第五个浏览模式
 import { NewsLibrary } from './NewsLibrary'
+// v40.5：知乎 4 API → 知识库闭环（一站式导入面板）
+import { ZhihuSourcesPanel } from './ZhihuSourcesPanel'
+// v40.5.3：知乎全网搜索 + 热榜 UI 入口（之前写好了但没被任何地方 import，被 vite tree-shake 掉了）
+import { ZhihuSearchPanel } from './ZhihuSearchPanel'
+import { ZhihuHotlistPanel } from './ZhihuHotlistPanel'
 import clsx from 'clsx'
 
-type LibraryMode = 'persona' | 'book' | 'domain' | 'video' | 'news'
+type LibraryMode = 'persona' | 'book' | 'domain' | 'video' | 'news' | 'zhihu'
 
 export function KnowledgeLibrary() {
-  const { isLoggedIn, token } = useAuth()
+  const { isLoggedIn, token, user } = useAuth()
   const [mode, setMode] = useState<LibraryMode>('persona')
   const [selectedId, setSelectedId] = useState<string>('INTJ')
   const [userBooks, setUserBooks] = useState<UserBook[]>(getUserBooks)
   const [addingBook, setAddingBook] = useState(false)
+  // v40.6.5：知乎源面板默认收起（点开才展开，避免常驻挤压浏览区）
+  const [sourcesOpen, setSourcesOpen] = useState(false)
+
+  // v40.5：知乎导入完成后 → 广播刷新事件（其他 KB 视图监听后自行刷新）
+  const onZhihuImported = (count: number) => {
+    if (count <= 0) return
+    // 广播给所有关心云端 KB 变化的视图（云端 KB 视图、领域视图、视频视图、新闻视图等可选择性监听）
+    window.dispatchEvent(new CustomEvent('mbti:cloudkb-changed', { detail: { source: 'zhihu', added: count } }))
+    console.info(`[KB] 已从知乎导入 ${count} 条到云端知识库`)
+  }
 
   // 监听云端/跨标签/合并触发后 localStorage 变化，自动刷新
   useEffect(() => {
@@ -88,6 +103,13 @@ export function KnowledgeLibrary() {
             >
               <Newspaper size={14} /> 每日新闻
             </button>
+            <button
+              onClick={() => { setMode('zhihu') }}
+              className={clsx('btn btn-sm transition-all', mode === 'zhihu' ? 'btn-primary btn-sheen' : 'btn-ghost')}
+              aria-label="知乎中心"
+            >
+              <Sparkles size={14} /> 知乎中心
+            </button>
             {mode !== 'domain' && (
               <button
                 onClick={() => { setMode('book'); setAddingBook(true) }}
@@ -122,6 +144,33 @@ export function KnowledgeLibrary() {
         </div>
       </div>
 
+      {/* v40.6.5：知乎源面板可收起（默认收起 → 点击展开 4 API 导入） */}
+      {user?.id && (
+        <div className="px-4 pt-3 flex-shrink-0">
+          <button
+            onClick={() => setSourcesOpen(o => !o)}
+            className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all hover:opacity-90"
+            style={{ background: 'var(--color-bg-tertiary)', border: '1px solid var(--color-border)', color: 'var(--color-text)' }}
+            aria-expanded={sourcesOpen}
+          >
+            <span className="flex items-center gap-2 font-semibold">
+              <Sparkles size={15} style={{ color: 'var(--color-accent)' }} />
+              知乎源 · 一键导入知识库
+              {!sourcesOpen && <span className="text-[10px] font-normal opacity-60">（我的内容/收藏/收藏夹）</span>}
+            </span>
+            <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--color-text-secondary)' }}>
+              {sourcesOpen ? '收起' : '展开'}
+              {sourcesOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </span>
+          </button>
+          {sourcesOpen && (
+            <div className="pt-2 animate-fade-in">
+              <ZhihuSourcesPanel userId={user.id} onImported={onZhihuImported} />
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto">
         {mode === 'persona' ? (
           <PersonaBrowse selectedId={selectedId} onSelect={setSelectedId} />
@@ -135,6 +184,8 @@ export function KnowledgeLibrary() {
           <VideoKnowledgeLibrary />
         ) : mode === 'news' ? (
           <NewsLibrary />
+        ) : mode === 'zhihu' ? (
+          <ZhihuCenter onImported={(c) => onZhihuImported(c)} />
         ) : (
           <DomainKnowledgeBase />
         )}
@@ -142,6 +193,71 @@ export function KnowledgeLibrary() {
 
       {/* 添加书籍模态 */}
       {addingBook && <AddBookModal onClose={() => setAddingBook(false)} onAdd={handleAddBook} />}
+    </div>
+  )
+}
+
+/* ==================== 知乎中心（v40.5.3）==================== */
+/**
+ * 把 ZhihuHotlistPanel + ZhihuSearchPanel 合在一个 tab：
+ *   - 上：热榜 Top 30（今日热门辩题源 / 1v1 话题源）
+ *   - 下：全网搜索（按关键词拉资料片段）
+ * 顶部 ZhihuSourcesPanel 仍提供 4 API 导入流（不变）
+ */
+function ZhihuCenter({ onImported }: { onImported: (count: number) => void }) {
+  const [lastImported, setLastImported] = useState<number>(0)
+  const handleImported = (n: number) => {
+    setLastImported(n)
+    onImported(n)
+  }
+
+  return (
+    <div className="p-4 flex flex-col gap-4">
+      {/* 头部：操作提示 + 状态 */}
+      <div className="flex items-center gap-2 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+        <Sparkles size={14} style={{ color: 'var(--color-accent)' }} />
+        <span>知乎全功能中心 · 搜索 + 热榜 + 4 API 导入（点击顶部「知乎源」标签）</span>
+        {lastImported > 0 && (
+          <span className="ml-auto text-xs px-2 py-0.5 rounded-full"
+            style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}>
+            ✓ 本次已导入 {lastImported} 条
+          </span>
+        )}
+      </div>
+
+      {/* 热榜：辩论/1v1 话题灵感源 */}
+      <section>
+        <div className="flex items-center gap-1.5 mb-2">
+          <Flame size={14} style={{ color: '#f97316' }} />
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+            今日知乎热榜
+          </h3>
+          <span className="text-xs opacity-60">· 点「1v1」挑个人格聊 / 也可开辩</span>
+        </div>
+        <ZhihuHotlistPanel
+          limit={20}
+          compact={false}
+          pickLabel="💬 和人格 1v1 讨论 →"
+          onPick={(item) => {
+            // v40.6.5：热榜话题 → 携带到 1v1 人格对话（App 切 tab + PersonaChat 预填）
+            window.dispatchEvent(new CustomEvent('mbti:open-1v1-topic', {
+              detail: { topic: item.title, url: item.url, source: '知乎热榜' },
+            }))
+          }}
+        />
+      </section>
+
+      {/* 搜索：按关键词拉片段 */}
+      <section>
+        <div className="flex items-center gap-1.5 mb-2">
+          <Search size={14} style={{ color: 'var(--color-accent)' }} />
+          <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+            知乎全网搜索
+          </h3>
+          <span className="text-xs opacity-60">· 按关键词拉资料片段（已自动 debounce）</span>
+        </div>
+        <ZhihuSearchPanel defaultQuery="" compact={false} />
+      </section>
     </div>
   )
 }

@@ -25,11 +25,9 @@ import {
   type DebateStage,
 } from './debatePrompts'
 import {
-  generateDebateResponse,
   judgeDebate,
   sideLabels,
   type Side,
-  type DebateEntry,
   type JudgeScore,
 } from './debateEngine'
 import { mbtiProfiles } from '../data/mbtiProfiles'
@@ -40,6 +38,18 @@ import type { PersonaMemory } from './personaMemory'
 import { retrieveVideoKnowledge } from './videoKnowledge'
 // v38：每日新闻知识检索（全局共享——人格辩论时可引用时事热点）
 import { retrieveNewsKnowledge } from './newsKnowledge'
+// v40.5.4：辩论资料接入知乎真实内容（服务端 /api/master/research 已封装知乎全网搜索）
+import { API_BASE } from '../config'
+
+async function _postJSON(url: string, body: any) {
+  const res = await fetch(`${API_BASE}${url}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as any)?.error || res.statusText)
+  return res.json()
+}
 
 // ============ 类型 ============
 
@@ -72,7 +82,18 @@ export interface TopicAnalysis {
 /** v27 资料包：LLM 知识库检索 / 本地兜底 */
 export interface ArenaResearch {
   text: string
-  source: 'llm' | 'fallback'
+  source: 'llm' | 'fallback' | 'llm+zhihu' | 'zhihu'
+  /** v40.5.4：知乎全网真实资料（pro=正方可用, con=反方可用） */
+  zhihu?: { pro: ZhihuHit[]; con: ZhihuHit[] }
+}
+
+/** v40.5.4：知乎搜索结果条目（服务端 /api/master/research 规整后） */
+export interface ZhihuHit {
+  title: string
+  snippet: string
+  url: string
+  author?: string
+  contentType?: string
 }
 
 /** v27.2 立场宣言：开赛前每位辩手先亮明「我认为……」，置顶展示 */
@@ -230,13 +251,22 @@ export async function prepareArena(state: ArenaState): Promise<ArenaState> {
 // ============ 赛前资料检索（v27「审题之后、辩论之前先检索资料」） ============
 
 /**
- * 生成赛前资料包：LLM 知识库检索优先，失败/未配置时返回本地兜底。
- * 返回 { text, source }——UI 据此区分「AI 深度检索」与「本地快速检索」。
+ * 生成赛前资料包：
+ *  1) 基础资料：LLM 知识库检索优先，失败/未配置时返回本地兜底；
+ *  2) 知乎增强（v40.5.4）：调 /api/master/research 拉取知乎全网真实资料（pro/con 两侧），
+ *     成功后把真实资料段落并入资料包并记录结构化 zhihu 字段供 UI 展示链接。
+ * 返回 { text, source, zhihu? }——UI 据此区分来源徽章。
  * 不抛错——保证辩论流程永不因检索失败中断，但检索必须发生。
  */
 export async function runResearch(state: ArenaState): Promise<ArenaState> {
   if (state.research) return state
   const typeIds = state.debaters.map(d => d.typeId)
+
+  // 1) 基础资料：LLM 优先 / 本地兜底
+  let base: { text: string; source: 'llm' | 'fallback' } = {
+    text: buildResearchFallback(state.topic),
+    source: 'fallback',
+  }
   if (isLLMConfigured()) {
     try {
       const raw = await chatCompletion(
@@ -247,13 +277,41 @@ export async function runResearch(state: ArenaState): Promise<ArenaState> {
         { temperature: 0.4, maxTokens: 800 }
       )
       if (raw && raw.trim().length > 30) {
-        return { ...state, research: { text: raw.trim(), source: 'llm' } }
+        base = { text: raw.trim(), source: 'llm' }
       }
     } catch (err) {
       console.warn('[Arena] LLM 资料检索失败，使用本地资料包:', err)
     }
   }
-  return { ...state, research: { text: buildResearchFallback(state.topic), source: 'fallback' } }
+
+  // 2) 知乎增强：真实全网资料（服务端会先查知乎启用状态；未启用/失败都静默跳过，不阻塞开赛）
+  try {
+    const data = await _postJSON('/api/master/research', { topic: state.topic, sides: ['pro', 'con'], useZhihu: true, count: 5 })
+    const zh = data?.research?.zhihu as { pro?: ZhihuHit[]; con?: ZhihuHit[] } | undefined
+    const pro = (zh?.pro || []).slice(0, 5)
+    const con = (zh?.con || []).slice(0, 5)
+    if (pro.length + con.length > 0) {
+      const fmt = (hits: ZhihuHit[]) => hits
+        .map((it, i) => `${i + 1}. ${it.title}（${it.author || '知乎用户'}）\n   ${it.snippet || ''}\n   原文：${it.url}`)
+        .join('\n')
+      const zhihuText = [
+        '',
+        '————— 知乎全网真实资料（联网检索，引用请带原文链接）—————',
+        '',
+        '【正方可用素材】',
+        fmt(pro) || '（未检索到）',
+        '',
+        '【反方可用素材】',
+        fmt(con) || '（未检索到）',
+      ].join('\n')
+      const source: ArenaResearch['source'] = base.source === 'llm' ? 'llm+zhihu' : 'zhihu'
+      return { ...state, research: { text: base.text + zhihuText, source, zhihu: { pro, con } } }
+    }
+  } catch (err) {
+    console.warn('[Arena] 知乎资料检索失败（静默跳过）:', (err as Error).message)
+  }
+
+  return { ...state, research: base }
 }
 
 /**
@@ -384,11 +442,11 @@ export async function generateArenaSpeech(
     return `【${s.typeName}（${sideName}）】${s.content}`
   })
 
-  // 尝试 LLM
-  if (isLLMConfigured()) {
-    try {
-      // v34：检索视频知识（全局共享）——失败静默跳过，不阻塞辩论
-      let videoKnowledge: string | null = null
+  // AI 发言（v40.5.5：openai 直连 + 知乎直答双通道自动切换）
+  // 失败即上抛可读错误 —— 绝不静默回退本地模板发言
+  try {
+    // v34：检索视频知识（全局共享）——失败静默跳过，不阻塞辩论
+    let videoKnowledge: string | null = null
       try {
         videoKnowledge = await retrieveVideoKnowledge(state.topic, 3)
       } catch (err) {
@@ -452,29 +510,12 @@ export async function generateArenaSpeech(
         source: 'llm',
       }
     } catch (err) {
-      console.warn('[Arena] LLM 生成失败，回退模板引擎:', err)
+      // v40.5.5：AI 双通道都失败 → 明确报错（不再本地模板凑数），上层 UI 提示重试/检查设置
+      console.error('[Arena] AI 发言生成失败（不落本地模板）:', err)
+      throw new Error(
+        `🤖 AI 发言服务暂不可用：${(err as Error).message}。已自动尝试「知乎直答」兜底，请检查网络后重试。`
+      )
     }
-  }
-
-  // 模板兜底
-  const entries: DebateEntry[] = state.history.map(s => ({
-    typeId: s.typeId,
-    content: s.content,
-    side: s.side,
-  }))
-  const result = generateDebateResponse(debater.typeId, state.topic, entries, {
-    side: debater.side,
-    sceneName: 'arena',
-  })
-  return {
-    typeId: debater.typeId,
-    typeName: debater.typeName,
-    side: debater.side,
-    content: result.content,
-    stage,
-    round: state.round,
-    source: 'template',
-  }
 }
 
 /**

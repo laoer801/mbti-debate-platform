@@ -41,6 +41,24 @@ export function CommunitySquare() {
     fetchPosts()
   }
 
+  // v40.6.9：删除自己发布的帖子（评论一并删除）
+  const handleDelete = async (postId: string) => {
+    if (!token) return
+    if (!window.confirm('确定删除这条帖子吗？它的评论也会一起删除。')) return
+    const res = await fetch(`${API}/posts/${postId}`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${token}` }
+    })
+    if (res.ok) {
+      setPosts(prev => prev.filter(p => p.id !== postId))
+      if (selectedPost === postId) setSelectedPost(null)
+    } else {
+      try {
+        const d = await res.json()
+        window.alert(d.error || '删除失败')
+      } catch { window.alert('删除失败，请重试') }
+    }
+  }
+
   const formatTime = (ts: number) => {
     const diff = Date.now() - ts
     if (diff < 60000) return '刚刚'
@@ -112,7 +130,7 @@ export function CommunitySquare() {
                     style={{ background: post.author_color + '20', color: post.author_color }}>
                     {post.author_emoji}
                   </div>
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold" style={{ color: post.author_color }}>{post.author_name}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full" style={{
@@ -124,6 +142,17 @@ export function CommunitySquare() {
                     </div>
                     <span className="text-xs opacity-50" style={{ color: 'var(--color-text)' }}>{formatTime(post.created_at)}</span>
                   </div>
+                  {/* v40.6.9：仅作者本人可删除 */}
+                  {!post.is_ai && user?.id && post.user_id === user.id && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(post.id) }}
+                      className="text-xs px-2.5 py-1 rounded-lg transition-all hover:scale-105"
+                      style={{ color: '#e57e7e', background: 'rgba(229,126,126,0.1)' }}
+                      aria-label="删除我的帖子"
+                    >
+                      🗑 删除
+                    </button>
+                  )}
                 </div>
 
                 {/* Content */}

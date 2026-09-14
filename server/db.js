@@ -393,7 +393,143 @@ export async function initDB() {
 
     CREATE INDEX IF NOT EXISTS idx_news_fetched ON news_articles(fetched_at DESC);
     CREATE INDEX IF NOT EXISTS idx_news_source ON news_articles(source);
+
+    -- ============================================================
+    -- v40.1 人格强度校准（双轨模型基线）
+    -- 用户跑完 60 题量表后，结果存这里，供人格卡片"强度仪表"展示
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS persona_calibration (
+      user_id TEXT NOT NULL,
+      type_id TEXT NOT NULL,
+      e_score INTEGER NOT NULL,
+      n_score INTEGER NOT NULL,
+      t_score INTEGER NOT NULL,
+      j_score INTEGER NOT NULL,
+      result_type TEXT NOT NULL,
+      intensity_score INTEGER NOT NULL,
+      filled_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, type_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_calibration_user ON persona_calibration(user_id);
+
+    -- ============================================================
+    -- v40.2 七维裁判配置（admin 可调）
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS judge_rubric (
+      version TEXT PRIMARY KEY,
+      rubric_json TEXT NOT NULL,
+      created_by TEXT,
+      total_passed INTEGER DEFAULT 0,
+      is_active INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rubric_active ON judge_rubric(is_active);
+
+    CREATE TABLE IF NOT EXISTS judge_verdicts (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      rubric_version TEXT NOT NULL,
+      judge_json TEXT NOT NULL,
+      consensus_json TEXT NOT NULL,
+      verdict_text TEXT NOT NULL,
+      citations_json TEXT DEFAULT '[]',
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (rubric_version) REFERENCES judge_rubric(version)
+    );
+    CREATE INDEX IF NOT EXISTS idx_verdicts_session ON judge_verdicts(session_id);
+    CREATE INDEX IF NOT EXISTS idx_verdicts_created ON judge_verdicts(created_at DESC);
+
+    -- ============================================================
+    -- v40.3 用户上传文件 + 检索（替代 localStorage 学习库）
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS uploaded_docs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      remote_kb_id TEXT,
+      remote_kb_url TEXT,
+      file_size INTEGER DEFAULT 0,
+      chunk_count INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'indexing',
+      error_message TEXT,
+      indexed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_uploaded_docs_user ON uploaded_docs(user_id);
+    CREATE INDEX IF NOT EXISTS idx_uploaded_docs_status ON uploaded_docs(status);
+
+    CREATE TABLE IF NOT EXISTS uploaded_chunks (
+      id TEXT PRIMARY KEY,
+      doc_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      embedding BLOB,
+      content_tsv TEXT,
+      FOREIGN KEY (doc_id) REFERENCES uploaded_docs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_chunks_doc ON uploaded_chunks(doc_id);
   `)
+
+  // 二次插入：仅在表为空时插入种子（用 stmt API 保证 NOW 正确传入）
+  try {
+    const rubricCount = db.prepare('SELECT COUNT(*) as c FROM judge_rubric').get()
+    if (rubricCount.c === 0) {
+      const insertRubric = db.prepare(`
+        INSERT INTO judge_rubric (version, rubric_json, is_active, created_at)
+        VALUES (?, ?, ?, ?)
+      `)
+      const now = Date.now()
+      insertRubric.run('legacy-5d',
+        JSON.stringify({ version: 'legacy-5d', dimensions: { logic: 0.25, evidence: 0.20, rebuttal: 0.25, clarity: 0.15, demeanor: 0.15 }, scale: 100 }),
+        0, now)
+      insertRubric.run('7d-v1',
+        JSON.stringify({ version: '7d-v1', dimensions: { logic: 0.18, evidence: 0.15, rebuttal: 0.15, clarity: 0.10, demeanor: 0.10, rhetoric: 0.12, strategy: 0.10, ethics: 0.10 }, scale: 100 }),
+        1, now)
+    }
+  } catch (e) {
+    console.log('judge_rubric seed:', e.message)
+  }
+
+  // FTS5 全文虚拟表（放在 db.exec 外面执行，因为 better-sqlite3 不允许 CREATE VIRTUAL TABLE 内嵌在 db.exec 里包含 tokenizer 字符处理）
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS uploaded_chunks_fts USING fts5(
+        chunk_id UNINDEXED,
+        doc_id UNINDEXED,
+        title,
+        content,
+        tokenize='unicode61'
+      );
+    `)
+  } catch (e) {
+    console.log('FTS5 初始化提示（可忽略）：', e.message)
+  }
+
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS user_citations (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        session_id TEXT,
+        doc_id TEXT NOT NULL,
+        chunk_id TEXT,
+        ref_text TEXT NOT NULL,
+        context TEXT,
+        created_at INTEGER NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (doc_id) REFERENCES uploaded_docs(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_citations_user ON user_citations(user_id);
+      CREATE INDEX IF NOT EXISTS idx_citations_session ON user_citations(session_id, created_at);
+    `)
+  } catch (e) {
+    console.log('user_citations 初始化提示：', e.message)
+  }
 
   // 已有数据库迁移：users 表补 role / banned 列（老库无此列时执行，幂等）
   try {
@@ -402,6 +538,38 @@ export async function initDB() {
   try {
     db.exec("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0")
   } catch { /* 列已存在 */ }
+
+  // v40.6：PK AI 对战 —— pk_rooms 补 ai_mode / ai_level 列（幂等迁移）
+  try {
+    db.exec("ALTER TABLE pk_rooms ADD COLUMN ai_mode INTEGER DEFAULT 0")
+  } catch { /* 列已存在 */ }
+  try {
+    db.exec("ALTER TABLE pk_rooms ADD COLUMN ai_level TEXT DEFAULT NULL")
+  } catch { /* 列已存在 */ }
+  // v40.6.3：回合制发言权（AI 对战用；真人房为 NULL 保持自由发言）
+  try {
+    db.exec("ALTER TABLE pk_rooms ADD COLUMN turn_user_id TEXT DEFAULT NULL")
+  } catch { /* 列已存在 */ }
+  // v40.6：AI 对手静默学习用户表达风格（不展示，仅服务端 AI 发言风格使用）
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ai_learner_styles (
+        user_id TEXT PRIMARY KEY,
+        move_count INTEGER DEFAULT 0,
+        total_chars INTEGER DEFAULT 0,
+        avg_len REAL DEFAULT 0,
+        q_len INTEGER DEFAULT 0,     -- 问句条数
+        ex_len INTEGER DEFAULT 0,    -- 感叹句条数
+        list_hits INTEGER DEFAULT 0, -- 分点/列举命中（①②③/首先/其次/第一等）
+        emoji_hits INTEGER DEFAULT 0,
+        followup_hits INTEGER DEFAULT 0, -- 承接词（所以/因此/不过/但是）
+        last_text TEXT,
+        updated_at INTEGER NOT NULL
+      )
+    `)
+  } catch (e) {
+    console.log('ai_learner_styles 初始化提示：', e.message)
+  }
 
   // Seed knowledge base data if empty
   try {

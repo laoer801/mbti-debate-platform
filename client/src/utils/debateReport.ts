@@ -45,6 +45,12 @@ export interface ReportInput {
   analysis?: string
   /** 资料包文本 */
   research?: string
+  /** v40.4：用户本人 typeId（用于生成个性化建议） */
+  userTypeId?: string
+  /** v40.4：当前 7 维评分（来自JudgeScore里） */
+  dimScores?: DimScore[]
+  /** v40.4：用户最近 5 场裁判分（不含当前场） */
+  recentHistory?: DimScore[][]
 }
 
 // ============ 二、数据转换辅助（供 DebateRoom 调用） ============
@@ -189,11 +195,19 @@ ${judgeText}
   return [
     { role: 'system', content: system },
     { role: 'user', content: user },
+    ...(input.dimScores && input.dimScores.length > 0
+      ? [{
+          role: 'system' as const,
+          content: `v40.4 个性化建议模块：用户人格=${input.userTypeId || '未知'}；当前 7 维=${JSON.stringify(input.dimScores)}；近 5 场=${JSON.stringify(input.recentHistory || [])}。在报告末尾以 ## 🎯 个性化辩论技巧建议 小节给出 7 天训练计划。`,
+        }]
+      : []),
   ]
 }
 
 /**
  * 生成辩论报告（LLM 优先，失败回退本地模板）。
+ *
+ * v40.4：当 dimScores 齐全时，本地直接附加"个性化辩论技巧建议"小节（无论 LLM 成功与否）。
  * @returns Markdown 字符串
  */
 export async function generateDebateReport(input: ReportInput): Promise<{ markdown: string; source: 'llm' | 'template' }> {
@@ -204,14 +218,37 @@ export async function generateDebateReport(input: ReportInput): Promise<{ markdo
       const trimmed = raw.trim()
       // LLM 输出应包含「辩论报告」标题；过短视为失败回退
       if (trimmed.length > 100 && /辩论报告|辩论概览|核心论点/.test(trimmed)) {
-        return { markdown: trimmed, source: 'llm' }
+        const coachingMarkdown = buildCoachingSection(input)
+        return {
+          markdown: coachingMarkdown ? `${trimmed}\n\n${coachingMarkdown}` : trimmed,
+          source: 'llm',
+        }
       }
       console.warn('[Report] LLM 输出过短或格式异常，回退本地模板')
     } catch (err) {
       console.warn('[Report] LLM 生成失败，回退本地模板:', err)
     }
   }
-  return { markdown: fallbackReport(input), source: 'template' }
+  const base = fallbackReport(input)
+  const coachingMarkdown = buildCoachingSection(input)
+  return {
+    markdown: coachingMarkdown ? `${base}\n\n${coachingMarkdown}` : base,
+    source: 'template',
+  }
+}
+
+/**
+ * v40.4：拼装「个性化辩论技巧建议」小节。
+ * 纯函数无副作用；dimScores 缺失时不输出。
+ */
+function buildCoachingSection(input: ReportInput): string {
+  if (!input.dimScores || input.dimScores.length === 0) return ''
+  const plan = generateCoachingPlan({
+    typeId: input.userTypeId,
+    currentDims: input.dimScores,
+    recentHistory: input.recentHistory,
+  })
+  return coachingPlanToMarkdown(plan)
 }
 
 // ============ 四、本地兜底报告（模板） ============

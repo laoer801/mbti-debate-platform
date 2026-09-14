@@ -3,6 +3,7 @@ import { Moon, Sun, SunMoon, Type, Eye, Accessibility, Monitor, Server, Check, R
 import clsx from 'clsx'
 import { getServerUrl, setServerUrl } from '../config'
 import { isAiVoiceEnabled, setAiVoiceEnabled } from '../utils/voiceEngine'
+import { isSoundEnabled, setSoundEnabled } from '../utils/sound' // v40.6.9 界面音效开关
 import { getLLMConfig, setLLMConfig, isLLMConfigured, LLM_PROVIDERS, getArenaMode, setArenaMode, chatOnce } from '../utils/llmClient'
 import { useState } from 'react'
 
@@ -28,10 +29,12 @@ const fontSizeOptions: { id: FontSize; label: string; desc: string; preview: str
 export function SettingsPage({ theme, setTheme, fontSize, setFontSize }: SettingsPageProps) {
   const [serverInput, setServerInput] = useState(getServerUrl())
   const [saved, setSaved] = useState(false)
+  const [soundOn, setSoundOnState] = useState(isSoundEnabled()) // v40.6.9 界面音效
   const [voiceOn, setVoiceOn] = useState(isAiVoiceEnabled())
 
   // v25 顶尖辩手模式（LLM 多智能体辩论）
   const [arenaMode, setArenaModeState] = useState(getArenaMode())
+  const [llmProvider, setLlmProvider] = useState<'openai-compatible' | 'zhihu'>(getLLMConfig().provider || 'openai-compatible')
   const [llmBaseURL, setLlmBaseURL] = useState(getLLMConfig().baseURL)
   const [llmApiKey, setLlmApiKey] = useState(getLLMConfig().apiKey)
   const [llmModel, setLlmModel] = useState(getLLMConfig().model)
@@ -51,12 +54,26 @@ export function SettingsPage({ theme, setTheme, fontSize, setFontSize }: Setting
   const applyProvider = (providerId: string) => {
     const p = LLM_PROVIDERS.find(x => x.id === providerId)
     if (!p) return
-    setLlmBaseURL(p.baseURL)
+    // 知乎直答：单独走 zhihu provider 路径（不依赖 baseURL/apiKey）
+    if (providerId === 'zhihu') {
+      setLlmProvider('zhihu')
+      setLlmBaseURL('')
+      setLlmApiKey('')
+      setLlmModel('thinking')
+      return
+    }
+    setLlmProvider('openai-compatible')
+    setLlmBaseURL(p.baseURL || '')
     setLlmModel(p.model)
   }
 
   const saveLLM = () => {
-    setLLMConfig({ baseURL: llmBaseURL.trim(), apiKey: llmApiKey.trim(), model: llmModel.trim() })
+    setLLMConfig({
+      provider: llmProvider,
+      baseURL: llmBaseURL.trim(),
+      apiKey: llmApiKey.trim(),
+      model: llmModel.trim(),
+    })
     setLlmSaved(true)
     setTimeout(() => setLlmSaved(false), 1500)
   }
@@ -125,6 +142,35 @@ export function SettingsPage({ theme, setTheme, fontSize, setFontSize }: Setting
         </details>
       </section>
 
+      {/* 界面音效（v40.6.9） */}
+      <section className="mb-8" aria-labelledby="sound-heading">
+        <h3 id="sound-heading" className="flex items-center gap-2 text-sm font-bold uppercase mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
+          {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />} 界面音效
+        </h3>
+        <div className="glass p-4 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>按键/点击提示音</div>
+            <div className="text-[10px] mt-0.5 opacity-60" style={{ color: 'var(--color-text-secondary)' }}>
+              按钮、标签页等点击时的轻提示音（纯本地合成，无网络流量）
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const v = !soundOn
+              setSoundOnState(v)
+              setSoundEnabled(v)
+            }}
+            className={clsx('px-3 py-1 rounded-full text-xs font-bold transition-all inline-flex items-center gap-1.5 shrink-0', soundOn && 'ring-2')}
+            style={soundOn
+              ? { background: 'var(--color-accent-light)', color: 'var(--color-accent)', borderColor: 'var(--color-accent)' }
+              : { background: 'var(--color-bg-secondary)', color: 'var(--color-text-tertiary)' }}
+            aria-pressed={soundOn}
+          >
+            {soundOn ? '开' : '关'}
+          </button>
+        </div>
+      </section>
+
       {/* 顶尖辩手模式（v25 LLM 多智能体辩论） */}
       <section className="mb-8" aria-labelledby="arena-heading">
         <h3 id="arena-heading" className="flex items-center gap-2 text-sm font-bold uppercase mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
@@ -176,14 +222,22 @@ export function SettingsPage({ theme, setTheme, fontSize, setFontSize }: Setting
             <div className="flex flex-wrap gap-2">
               {LLM_PROVIDERS.map(p => (
                 <button key={p.id} onClick={() => applyProvider(p.id)}
-                  className={clsx('px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer', llmBaseURL === p.baseURL && 'ring-2')}
-                  style={llmBaseURL === p.baseURL
+                  className={clsx('px-2.5 py-1 rounded-md text-xs font-bold transition-all cursor-pointer',
+                    (llmProvider === 'zhihu' && p.id === 'zhihu') || (llmProvider === 'openai-compatible' && llmBaseURL === p.baseURL && p.id !== 'zhihu')) && 'ring-2'}
+                  style={(llmProvider === 'zhihu' && p.id === 'zhihu') || (llmProvider === 'openai-compatible' && llmBaseURL === p.baseURL && p.id !== 'zhihu')
                     ? { background: 'var(--color-accent-light)', color: 'var(--color-accent)', borderColor: 'var(--color-accent)' }
                     : { background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
                   {p.name}
                 </button>
               ))}
             </div>
+            {llmProvider === 'zhihu' && (
+              <div className="text-xs p-2 rounded-lg" style={{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }}>
+                <p>✅ 已选择 <b>知乎直答</b>（免配置，secret 在服务端）</p>
+                <p className="mt-1">由部署方在 <code>.env</code> 里填 <code>ZHIHU_ACCESS_SECRET</code>。</p>
+                <p className="mt-1">模型档位：thinking（稳） / fast（快） / agent（长任务），默认 thinking</p>
+              </div>
+            )}
             <input
               type="text"
               value={llmBaseURL}

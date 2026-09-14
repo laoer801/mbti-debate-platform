@@ -2,8 +2,139 @@ import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
 import { getDB } from '../db.js'
 import { DEFAULT_PET_SPRITES, getPetWithBonus, settlePetBattle } from './pets.js'
+// v40.6：PK AI 对战（三档难度 + 静默学习用户风格）——AI 以影子用户参战，机制与真人 PK 完全一致
+import { AI_LEVELS, AI_LEVEL_KEYS, learnFromUserText, generateAIReply } from '../ai-opponent.js'
+// v40.6.4：PK 客观 AI 裁判（维度引证打分 + 专业报告）；失败回退启发式
+import { aiJudgeDebate } from '../pk-judge-ai.js'
 
 export const pkRoomRoutes = Router()
+
+// ============================================================
+// v40.6 PK AI 对战
+// 用户开房 → AI 影子用户自动占反方 → 发言/宠物攻击/裁判/结算全部走真人同链路
+// ============================================================
+
+/** 确保 3 个 AI 影子用户存在（幂等；password 为随机不可登录串） */
+function ensureAIShadowUsers(db) {
+  const ins = db.prepare(`
+    INSERT OR IGNORE INTO users (id, username, password, mbti_type, avatar, bio, created_at)
+    VALUES (?, ?, ?, NULL, '', 'PK AI 对手（服务端驱动）', ?)
+  `)
+  const now = Date.now()
+  for (const key of AI_LEVEL_KEYS) {
+    const cfg = AI_LEVELS[key]
+    ins.run(cfg.id, cfg.label, 'x-ai-' + Math.random().toString(36).slice(2, 14), now)
+  }
+}
+
+/** AI 房间当前真人 user（AI 房间最多 1 名真人） */
+function aiHumanUser(db, roomId) {
+  return db.prepare(`
+    SELECT p.user_id FROM pk_participants p WHERE p.room_id = ? AND p.user_id NOT LIKE 'ai__%'
+  `).get(roomId)?.user_id || null
+}
+
+/** AI 房间当前 AI 影子 id（按 ai_level） */
+function aiShadowId(db, roomId) {
+  const room = db.prepare('SELECT ai_level FROM pk_rooms WHERE id = ?').get(roomId)
+  return room?.ai_level ? AI_LEVELS[room.ai_level]?.id || null : null
+}
+
+/** AI 是否该回（触发后防重复：每阶段最多回 n 条；用户发言晚于 AI 上一条才回） */
+function shouldAIReply(db, roomId, aiId, humanId) {
+  const humanLast = db.prepare('SELECT created_at FROM pk_moves WHERE room_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').get(roomId, humanId)
+  const aiLast = db.prepare('SELECT created_at FROM pk_moves WHERE room_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').get(roomId, aiId)
+  if (!humanLast) return false // 用户还没发言，AI 不主动开场（等待用户发起）
+  if (!aiLast) return true     // AI 本场首回
+  return humanLast.created_at > aiLast.created_at
+}
+
+/** 组装 AI 回复并落库广播（复用真人 move 的宠物攻击/广播链路） */
+async function runAIReply(app, roomId) {
+  const db = getDB()
+  const room = db.prepare('SELECT * FROM pk_rooms WHERE id = ?').get(roomId)
+  if (!room || !room.ai_mode) return
+  const aiId = aiShadowId(db, roomId)
+  const humanId = aiHumanUser(db, roomId)
+  if (!aiId || !humanId) return
+  const SPEAK = ['opening', 'free_debate', 'closing']
+  if (!SPEAK.includes(room.current_phase)) return
+  if (!shouldAIReply(db, roomId, aiId, humanId)) return
+
+  const levelKey = room.ai_level || 'beginner'
+  const sideName = '反方'
+  const raw = await generateAIReply({
+    levelKey,
+    topic: room.topic,
+    phase: room.current_phase,
+    sideName,
+    humanUserId: humanId,
+    history: db.prepare(`
+      SELECT m.user_id, m.content FROM pk_moves m
+      WHERE m.room_id = ? ORDER BY m.created_at ASC LIMIT 24
+    `).all(roomId).map(m => ({
+      role: m.user_id === aiId ? 'ai' : 'human',
+      content: m.content,
+    })),
+  })
+
+  // AI 落库（与真人 move 同链路：宠物攻击由服务端结算并广播）
+  addPKMove(app, db, room, aiId, raw, 'speech')
+
+  // v40.6.3：AI 发言完毕 → 回合归还用户 + 广播（前端据此解锁输入并提示"轮到你"）
+  db.prepare('UPDATE pk_rooms SET turn_user_id = ? WHERE id = ?').run(humanId, roomId)
+  const io = app?.get?.('io')
+  if (io) io.to(`pk-room-${roomId}`).emit('pk-turn', { roomId, turnUserId: humanId })
+}
+
+/** 用户提交发言后的 AI 调度（真人 move 路由调用） */
+function maybeScheduleAIOpponent(app, db, room, userId) {
+  if (!room.ai_mode || !room.ai_level) return
+  if (String(userId).startsWith('ai__')) return // AI 自己的 move 不再递归调度
+  // 静默学习用户表达（v40.6 learner）
+  const humanMove = db.prepare('SELECT content FROM pk_moves WHERE room_id = ? AND user_id = ? ORDER BY created_at DESC LIMIT 1').get(room.id, userId)
+  if (humanMove?.content) {
+    try { learnFromUserText(db, userId, humanMove.content) } catch (e) { /* 学习失败静默 */ }
+  }
+  const delay = 400 + Math.random() * 600 // v40.6.1：AI 略作"反应"即回（0.4~1s），不再人为拖慢
+  const io = app?.get?.('io')
+  const aiCfg = AI_LEVELS[room.ai_level] || AI_LEVELS.beginner
+  if (io) {
+    // v40.6.1：先广播"AI 正在输入"，用户立刻看到对方在回，消除等待焦虑
+    io.to(`pk-room-${room.id}`).emit('ai-typing', { roomId: room.id, userId: aiCfg.id, username: aiCfg.label, level: aiCfg.title })
+  }
+  setTimeout(async () => {
+    try {
+      await runAIReply(app, room.id)
+    } catch (e) {
+      console.warn('[PK-AI] 生成发言失败:', e.message)
+      // v40.6.3：AI 失败 → 回合归还用户，避免用户卡在"对方发言中"
+      try {
+        const db = getDB()
+        const humanId = aiHumanUser(db, room.id)
+        if (humanId) {
+          db.prepare('UPDATE pk_rooms SET turn_user_id = ? WHERE id = ?').run(humanId, room.id)
+          if (io) io.to(`pk-room-${room.id}`).emit('pk-turn', { roomId: room.id, turnUserId: humanId })
+        }
+      } catch (err) { /* 归还失败静默 */ }
+      if (io) {
+        io.to(`pk-room-${room.id}`).emit('new-move', {
+          id: 'sys-' + Date.now(),
+          roomId: room.id,
+          userId: 'sys',
+          username: '系统',
+          avatar: '',
+          mbtiType: null,
+          content: `🤖 AI 辩友走神了（${e.message}），现在轮到你，请继续发言。`,
+          moveType: 'system',
+          side: null,
+          phase: room.current_phase,
+          createdAt: Date.now(),
+        })
+      }
+    }
+  }, delay)
+}
 
 // ============================================================
 // 辩论PK房间系统
@@ -167,6 +298,47 @@ pkRoomRoutes.post('/create', (req, res) => {
   res.json({ room, message: '房间创建成功' })
 })
 
+// v40.6：创建 AI 对战房间（三档难度，AI 自动占反方；机制与真人 PK 完全一致）
+pkRoomRoutes.post('/ai/create', (req, res) => {
+  const db = getDB()
+  const { userId, level, topic } = req.body || {}
+  if (!userId) return res.status(400).json({ error: 'userId 必填' })
+
+  const lv = AI_LEVELS[level] || AI_LEVELS.beginner
+  ensureAIShadowUsers(db)
+
+  const fallbackTopics = [
+    'AI 是否应该拥有创作版权', 'MBTI 测试是否科学', '996 工作制是否合理',
+    '社交媒体让人更孤独还是更连接', '金钱能否买到幸福', '大学教育是否值得',
+    '远程办公 vs 办公室办公', '人是否应该追求永远正确',
+  ]
+  const finalTopic = (typeof topic === 'string' && topic.trim().length >= 4)
+    ? topic.trim()
+    : fallbackTopics[Math.floor(Math.random() * fallbackTopics.length)]
+
+  const roomId = uuidv4().slice(0, 8).toUpperCase()
+  const now = Date.now()
+  db.prepare(`
+    INSERT INTO pk_rooms (id, topic, position, current_phase, is_public, max_participants, creator_id, ai_mode, ai_level, turn_user_id, created_at, started_at, phase_started_at)
+    VALUES (?, ?, '正方', 'waiting', 0, 2, ?, 1, ?, ?, ?, NULL, NULL)
+  `).run(roomId, finalTopic, userId, level || 'beginner', userId, now)
+
+  const insPart = db.prepare(`
+    INSERT INTO pk_participants (id, room_id, user_id, side, status, joined_at)
+    VALUES (?, ?, ?, ?, 'joined', ?)
+  `)
+  insPart.run(uuidv4(), roomId, userId, 'pro', now)        // 用户：正方
+  insPart.run(uuidv4(), roomId, lv.id, 'con', now)         // AI：反方（影子用户）
+
+  const room = db.prepare(`
+    SELECT r.*,
+      (SELECT COUNT(*) FROM pk_participants WHERE room_id = r.id) as participant_count
+    FROM pk_rooms r WHERE r.id = ?
+  `).get(roomId)
+
+  res.json({ room, opponent: { label: lv.label, level: lv.title, id: lv.id } })
+})
+
 // 获取房间列表（只显示公开且未满的房间）
 pkRoomRoutes.get('/list', (req, res) => {
   const db = getDB()
@@ -176,6 +348,7 @@ pkRoomRoutes.get('/list', (req, res) => {
     FROM pk_rooms r
     WHERE r.current_phase != 'finished'
       AND r.is_public = 1
+      AND COALESCE(r.ai_mode, 0) = 0
       AND (SELECT COUNT(*) FROM pk_participants WHERE room_id = r.id) < r.max_participants
     ORDER BY r.created_at DESC
     LIMIT 50
@@ -336,7 +509,10 @@ pkRoomRoutes.post('/:roomId/phase', (req, res) => {
     if (count.cnt < 2) return res.status(400).json({ error: '至少需要2人才能开始' })
   }
 
-  const duration = PHASE_DURATIONS[phase] || 0
+  // v40.6.2：AI 房跳过漫长准备——preparation 仅 8s（展示宠物快照即开辩），真人房保持原时长
+  const duration = (phase === 'preparation' && room.ai_mode)
+    ? 8
+    : (PHASE_DURATIONS[phase] || 0)
   const now = Date.now()
 
   db.prepare(`
@@ -346,6 +522,16 @@ pkRoomRoutes.post('/:roomId/phase', (req, res) => {
 
   if (phase !== 'waiting' && !room.started_at) {
     db.prepare('UPDATE pk_rooms SET started_at = ? WHERE id = ?').run(now, req.params.roomId)
+  }
+
+  // v40.6.3：AI 房每次切阶段 → 发言权归还用户（保证用户总能发言；AI 由用户发言触发回复）
+  if (room.ai_mode) {
+    try {
+      const humanId = aiHumanUser(db, req.params.roomId)
+      if (humanId) {
+        db.prepare('UPDATE pk_rooms SET turn_user_id = ? WHERE id = ?').run(humanId, req.params.roomId)
+      }
+    } catch (e) { /* 静默 */ }
   }
 
   // v40：进入准备阶段时锁定双方宠物战斗快照并广播（擂台初始化）
@@ -367,7 +553,41 @@ pkRoomRoutes.post('/:roomId/phase', (req, res) => {
   res.json({ phase, startedAt: now, duration, battleStates })
 })
 
-// 提交辩论发言
+// 通用发言落库（真人 move 与 v40.6 AI 回复共用，保证宠物攻击/广播一致）
+function addPKMove(app, db, room, userId, content, moveType) {
+  const SPEAK_PHASES = ['opening', 'free_debate', 'closing']
+  if (!SPEAK_PHASES.includes(room.current_phase)) {
+    return { ok: false, error: `当前阶段 ${room.current_phase} 不允许发言` }
+  }
+  const text = typeof content === 'string' ? content.trim() : ''
+  if (!text) return { ok: false, error: '发言内容不能为空' }
+
+  const moveId = uuidv4()
+  const now = Date.now()
+  db.prepare(`
+    INSERT INTO pk_moves (id, room_id, user_id, content, move_type, phase, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(moveId, room.id, userId, text, moveType || 'speech', room.current_phase, now)
+
+  const user = db.prepare('SELECT username, avatar, mbti_type FROM users WHERE id = ?').get(userId)
+  const participant = db.prepare('SELECT side FROM pk_participants WHERE room_id = ? AND user_id = ?').get(room.id, userId)
+
+  const move = { id: moveId, roomId: room.id, userId, username: user?.username || '神秘辩友', avatar: user?.avatar || '', mbtiType: user?.mbti_type || null, content: text, moveType: moveType || 'speech', side: participant?.side || null, phase: room.current_phase, createdAt: now }
+
+  // v40：服务器权威宠物攻击 —— 发言即攻击，伤害由服务端计算并广播
+  const battleEvent = applyPetAttack(db, room.id, userId, text)
+
+  const io = app?.get?.('io')
+  if (io) {
+    io.to(`pk-room-${room.id}`).emit('new-move', move)
+    if (battleEvent) {
+      io.to(`pk-room-${room.id}`).emit('pet-battle', battleEvent)
+    }
+  }
+  return { ok: true, move, battleEvent }
+}
+
+// 提交辩论发言（真人）
 pkRoomRoutes.post('/:roomId/move', (req, res) => {
   const db = getDB()
   const { userId, content, moveType } = req.body
@@ -375,37 +595,29 @@ pkRoomRoutes.post('/:roomId/move', (req, res) => {
   const room = db.prepare('SELECT * FROM pk_rooms WHERE id = ?').get(req.params.roomId)
   if (!room) return res.status(404).json({ error: '房间不存在' })
 
-  // 只允许在发言阶段提交（准备/评分/等待/结束均不允许）
-  const SPEAK_PHASES = ['opening', 'free_debate', 'closing']
-  if (!SPEAK_PHASES.includes(room.current_phase)) {
-    return res.status(400).json({ error: `当前阶段 ${room.current_phase} 不允许发言` })
+  // v40.6.3：AI 对战回合制 —— 发言权校验（真人房 turn 为 NULL 不限制，保持自由发言）
+  if (room.ai_mode && room.turn_user_id && room.turn_user_id !== userId) {
+    const turnOwner = db.prepare('SELECT username FROM users WHERE id = ?').get(room.turn_user_id)
+    return res.status(400).json({ error: `请等「${turnOwner?.username || '对方'}」发言完再继续` })
   }
 
-  const moveId = uuidv4()
-  const now = Date.now()
+  const r = addPKMove(req.app, db, room, userId, content, moveType)
+  if (!r.ok) return res.status(400).json({ error: r.error })
 
-  db.prepare(`
-    INSERT INTO pk_moves (id, room_id, user_id, content, move_type, phase, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(moveId, req.params.roomId, userId, content, moveType || 'speech', room.current_phase, now)
-
-  const user = db.prepare('SELECT username, avatar, mbti_type FROM users WHERE id = ?').get(userId)
-  const participant = db.prepare('SELECT side FROM pk_participants WHERE room_id = ? AND user_id = ?').get(req.params.roomId, userId)
-
-  const move = { id: moveId, roomId: req.params.roomId, userId, username: user?.username, avatar: user?.avatar, mbtiType: user?.mbti_type, content, moveType: moveType || 'speech', side: participant?.side, phase: room.current_phase, createdAt: now }
-
-  // v40：服务器权威宠物攻击 —— 发言即攻击，伤害由服务端计算并广播
-  const battleEvent = applyPetAttack(db, req.params.roomId, userId, content)
-
-  const io = req.app.get('io')
-  if (io) {
-    io.to(`pk-room-${req.params.roomId}`).emit('new-move', move)
-    if (battleEvent) {
-      io.to(`pk-room-${req.params.roomId}`).emit('pet-battle', battleEvent)
+  // v40.6.3：发言权交予 AI（用户发完 → 自动轮到对方；AI 回完再归还）
+  if (room.ai_mode) {
+    const aiId = aiShadowId(db, room.id)
+    if (aiId) {
+      db.prepare('UPDATE pk_rooms SET turn_user_id = ? WHERE id = ?').run(aiId, room.id)
+      const io = req.app.get('io')
+      if (io) io.to(`pk-room-${room.id}`).emit('pk-turn', { roomId: room.id, turnUserId: aiId })
     }
   }
 
-  res.json({ move, battleEvent })
+  // v40.6：真人发言后 → AI 对手调度（学习用户 + 延迟回复）
+  maybeScheduleAIOpponent(req.app, db, room, userId)
+
+  res.json({ move: r.move, battleEvent: r.battleEvent })
 })
 
 // AI 裁判评分
@@ -436,8 +648,43 @@ pkRoomRoutes.post('/:roomId/judge', async (req, res) => {
     WHERE m.room_id = ? ORDER BY m.created_at ASC
   `).all(req.params.roomId)
 
-  // AI 评分逻辑
-  const scores = judgeDebate(room, participants, moves)
+  // v40.6.4：客观 AI 裁判优先（维度引证评分 + 专业复盘）；AI 不可用才回退关键词启发式
+  let scores
+  try {
+    const { zhihuEnabled } = await import('../zhihu.js')
+    if (zhihuEnabled()) {
+      scores = await aiJudgeDebate(room, participants, moves)
+      console.log(`[PK-Judge] ${req.params.roomId} 已用客观 AI 裁判`)
+    } else {
+      scores = judgeDebate(room, participants, moves)
+    }
+  } catch (e) {
+    console.warn('[PK-Judge] AI 裁判失败，回退启发式:', e.message)
+    scores = judgeDebate(room, participants, moves)
+  }
+
+  // v40.4：把本地 5 维映射为 7 维 dimScores → 给宠物链接用
+  const buildDimScores = (userId) => {
+    const result = scores.results?.find(r => r.userId === userId)
+    if (!result || !result.scores) {
+      return [
+        { key: 'logic', score: 50 }, { key: 'evidence', score: 50 },
+        { key: 'rhetoric', score: 50 }, { key: 'strategy', score: 50 },
+        { key: 'clarity', score: 50 }, { key: 'demeanor', score: 70 },
+        { key: 'ethics', score: 60 },
+      ]
+    }
+    const s = result.scores
+    return [
+      { key: 'logic',    score: s.logic ?? 50 },
+      { key: 'evidence', score: s.evidence ?? 50 },
+      { key: 'rhetoric', score: s.eloquence ?? 50 },        // eloquence → rhetoric
+      { key: 'strategy', score: s.rebuttal ?? 50 },          // rebuttal → strategy（策略反击）
+      { key: 'clarity',  score: s.eloquence ?? 50 },         // 同上复用
+      { key: 'demeanor', score: s.etiquette ?? 50 },
+      { key: 'ethics',   score: Math.max(0, (s.etiquette ?? 50) - 5) }, // 礼仪风度含道德伦理
+    ]
+  }
 
   // v40：宠物战斗结算 —— 服务端统一发放经验/积分/胜负（不再依赖前端调用 /battle-result）
   const battleStates = db.prepare('SELECT * FROM pk_battle_state WHERE room_id = ?').all(req.params.roomId)
@@ -455,10 +702,14 @@ pkRoomRoutes.post('/:roomId/judge', async (req, res) => {
         damageDealt: bs.damage_dealt,
         damageTaken: bs.damage_taken,
         debateScore: playerScore,
+        dimScores: buildDimScores(bs.user_id),  // v40.4 关键
       })
       if (result) {
         const line = `🐾 **${bs.name}**（${bs.emoji}）：造成 ${bs.damage_dealt} 伤害 | 承受 ${bs.damage_taken} 伤害 | 经验 +${result.expGain} | 积分 +${result.pointsGain}`
         petReport.push(result.levelUp ? `${line} | ⬆️ 升级到 Lv.${result.newLevel}！` : line)
+        if (result.petLink?.unlockedSkill) {
+          petReport.push(`🔓 **${bs.name}** 解锁新技能「${result.petLink.unlockedSkill.name}」${result.petLink.unlockedSkill.emoji}`)
+        }
       }
     }
   }

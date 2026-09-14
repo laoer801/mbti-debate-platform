@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { CSSProperties } from 'react'
 import clsx from 'clsx'
-import { Swords, Plus, Zap, Users, Globe, Lock, RefreshCw, PawPrint, ArrowLeft, Lightbulb, Sparkles } from 'lucide-react'
+import { Swords, Plus, Zap, Users, Globe, Lock, RefreshCw, PawPrint, ArrowLeft, Lightbulb, Sparkles, Bot, BrainCircuit, Crown } from 'lucide-react'
 import { PKRoom, PKPhase } from '../types'
 import { useAuth } from '../hooks/useAuth'
 import { useSocket } from '../hooks/useSocket'
@@ -34,6 +34,7 @@ export function PKLobby({ onJoinRoom }: PKLobbyProps) {
   const [createPublic, setCreatePublic] = useState(true)
   const [creating, setCreating] = useState(false)
   const [matching, setMatching] = useState(false)
+  const [aiBusy, setAiBusy] = useState<string | null>(null) // v40.6 AI 对战加载态
   const [error, setError] = useState('')
   const [showPetShop, setShowPetShop] = useState(false)
 
@@ -126,6 +127,33 @@ export function PKLobby({ onJoinRoom }: PKLobbyProps) {
     if (!isLoggedIn) { setError('请先登录后再进入房间'); return }
     onJoinRoom(roomId)
   }
+
+  // v40.6：AI 对战（初级/中级/大师）——服务端建房，机制与真人 PK 完全一致
+  const handleAI = async (level: 'beginner' | 'intermediate' | 'master') => {
+    if (!isLoggedIn) { setError('请先登录后再进入房间'); return }
+    setAiBusy(level)
+    setError('')
+    try {
+      const token = localStorage.getItem('mbti_token')
+      const res = await fetch(`${API}/pk/ai/create`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` },
+        body: JSON.stringify({ userId: user?.id, level }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || '创建 AI 对战失败')
+      onJoinRoom(data.room.id)
+    } catch (e: any) {
+      setError(e.message || 'AI 对战启动失败')
+    } finally {
+      setAiBusy(null)
+    }
+  }
+
+  const AI_TIERS = [
+    { key: 'beginner' as const, label: '初级', desc: '新手陪练 · 轻松上手', icon: Bot, color: '#2fc9a3' },
+    { key: 'intermediate' as const, label: '中级', desc: '有套路的对手 · 需认真辩', icon: BrainCircuit, color: '#d9b871' },
+    { key: 'master' as const, label: '大师', desc: '犀利老练 · 会学你的打法', icon: Crown, color: '#8f7ff5' },
+  ]
 
   return (
     <div className="h-full flex flex-col overflow-hidden" style={{ background: 'var(--color-bg)' }}>
@@ -264,6 +292,42 @@ export function PKLobby({ onJoinRoom }: PKLobbyProps) {
       {/* Room list */}
       {!showPetShop && (
       <div className="flex-1 overflow-y-auto p-4">
+        {/* v40.6：AI 对战（机制与真人 PK 一致 · AI 会静默学习你的表达风格） */}
+        <div className="rounded-2xl p-4 mb-4 border" style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border)' }}>
+          <div className="flex items-center gap-2 mb-3">
+            <Bot size={16} style={{ color: 'var(--color-accent)' }} />
+            <span className="text-sm font-bold" style={{ color: 'var(--color-text)' }}>🤖 AI 对战</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full" style={{ background: 'var(--color-accent-light)', color: 'var(--color-accent)' }}>
+              随时开打 · 真人同机制
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {AI_TIERS.map(tier => {
+              const Icon = tier.icon
+              const busy = aiBusy === tier.key
+              return (
+                <button
+                  key={tier.key}
+                  onClick={() => handleAI(tier.key)}
+                  disabled={!!aiBusy || matching}
+                  className="rounded-xl px-3 py-2.5 text-left transition-all hover:scale-[1.03] disabled:opacity-50 border"
+                  style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)' }}
+                >
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <Icon size={14} style={{ color: tier.color }} />
+                    <span className="text-xs font-bold" style={{ color: 'var(--color-text)' }}>{tier.label} AI</span>
+                    {busy && <RefreshCw size={12} className="animate-spin ml-auto" style={{ color: 'var(--color-accent)' }} />}
+                  </div>
+                  <div className="text-[10px] leading-tight" style={{ color: 'var(--color-text-secondary)' }}>{tier.desc}</div>
+                </button>
+              )
+            })}
+          </div>
+          {error && aiBusy && (
+            <div className="mt-2 text-[11px]" style={{ color: '#f87171' }}>{error}</div>
+          )}
+        </div>
+
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text-secondary)' }}>
             房间列表 ({rooms.length})

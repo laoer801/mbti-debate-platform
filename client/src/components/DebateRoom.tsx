@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Moon, Sun, Send, StopCircle, RotateCcw, TrendingUp, Brain, Sparkles, Zap, Scale, Volume2, VolumeX, FileText } from 'lucide-react'
+import { Moon, Sun, Send, StopCircle, RotateCcw, TrendingUp, Brain, Sparkles, Zap, Scale, Volume2, VolumeX, FileText, ChevronDown, ChevronUp, AlertTriangle, RefreshCw } from 'lucide-react'
 import { ChatMessage } from './ChatMessage'
 import { VoiceInput } from './VoiceInput'
 import { Message, DebateMode, ConfidenceScore, ReflectionEntry } from '../types'
@@ -11,7 +11,7 @@ import { generateDebateResponse, generateReflection, ReflectionResult, judgeDeba
 import { getLearningMaterial } from '../utils/learningStore'
 import { speakAiMessage, isAiVoiceEnabled, setAiVoiceEnabled } from '../utils/voiceEngine'
 import { speechService } from '../utils/speechService'
-import { isLLMConfigured, getArenaMode, chatCompletion } from '../utils/llmClient'
+import { isLLMConfigured, hasAnyAIChannel, getArenaMode, chatCompletion } from '../utils/llmClient'
 import { createArenaFromTypes, prepareFullArena, runNextSpeech, judgeArena, analyzeTopic, parseCoT, type ArenaState, type ArenaJudgeResult, type TopicAnalysis, type ArenaResearch, type ArenaStance } from '../utils/debateArena'
 // v33 辩论报告生成器（对标 Dialectic：辩论结束后一键生成结构化 Markdown 报告）
 import { DebateReport } from './DebateReport'
@@ -89,6 +89,11 @@ export function DebateRoom({
   // v27 资料检索：审题之后检索辩题资料——资料包卡片展示，来源区分 AI 深度/本地快速
   const [arenaResearch, setArenaResearch] = useState<ArenaResearch | null>(null)
   const [researching, setResearching] = useState(false)
+  // v40.5.5：AI 发言失败提示（不落本地模板）+ 审题报告可收缩
+  const [arenaError, setArenaError] = useState<string | null>(null)
+  const [analysisCollapsed, setAnalysisCollapsed] = useState(false)
+  // v40.6.1：资料包可收缩
+  const [researchCollapsed, setResearchCollapsed] = useState(false)
   // v27.2 立场宣言：开赛前每人先亮明「我认为……」——置顶展示，立场锁定全赛程
   const [arenaStance, setArenaStance] = useState<ArenaStance[] | null>(null)
   const [stanceLoading, setStanceLoading] = useState(false)
@@ -307,7 +312,7 @@ export function DebateRoom({
 
     // ── v29 辩题识别：所有辩论模式开始前必须先识别辩题 ──
     // arena 模式在其分支内有完整审题流程（prepareFullArena），这里只处理非 arena 模式
-    if (!(getArenaMode() && isLLMConfigured()) && !arenaAnalysis) {
+    if (!(getArenaMode() && hasAnyAIChannel()) && !arenaAnalysis) {
       setAnalyzing(true)
       try {
         const analysis = await analyzeTopic(topic, selectedTypes)
@@ -320,7 +325,8 @@ export function DebateRoom({
     }
 
     // ── v25 顶尖辩手模式：LLM 多智能体结构化对抗（开场→质询→自由辩→总结 + AI 裁判）──
-    if (getArenaMode() && isLLMConfigured()) {
+    // v40.5.5：判定放宽为 hasAnyAIChannel（openai 直连失败会自动切知乎直答，不再因配置不全落本地模板）
+    if (getArenaMode() && hasAnyAIChannel()) {
       try {
         // 首次进入：创建辩论场（立场沿用 sideMapRef 分配，与模板模式一致）
         if (!arenaRef.current) {
@@ -402,8 +408,15 @@ export function DebateRoom({
         }
         return
       } catch (err) {
-        console.warn('[Arena] 编排失败，回退本地模板引擎:', err)
-        // 不 return，继续走下方模板引擎逻辑
+        // v40.5.5：AI 通道失败 → 明确提示 + 停止自动，绝不静默回退本地模板引擎
+        console.error('[Arena] AI 编排失败（已拦截，不落本地模板）:', err)
+        autoRef.current = false
+        setAutoOn(false)
+        streamingRef.current = false
+        setIsStreaming(false)
+        setStreamingMessage(null)
+        setArenaError((err as Error).message || 'AI 发言失败，请重试')
+        return
       }
     }
 
@@ -794,6 +807,26 @@ export function DebateRoom({
             </div>
           )}
 
+          {/* v40.5.5：AI 发言失败提示条（不再本地模板兜底）——可点击重试 */}
+          {arenaError && (
+            <div className="mx-4 my-2 px-3 py-2 rounded-lg flex items-start gap-2 text-xs animate-fade-in"
+              style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.35)' }}>
+              <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+              <div className="flex-1 leading-relaxed">{arenaError}</div>
+              <button
+                onClick={() => {
+                  setArenaError(null)
+                  streamingRef.current = true
+                  setIsStreaming(true)
+                  startBotRoundRef.current()
+                }}
+                className="flex items-center gap-1 px-2 py-1 rounded-md font-semibold hover:bg-white/10 transition-colors flex-shrink-0"
+              >
+                <RefreshCw size={11} /> 重试
+              </button>
+            </div>
+          )}
+
           {/* AI 思考循环（等待沉浸化）：流式生成间隙展示 */}
           {isStreaming && !streamingMessage && (
             <div className="flex items-center gap-3 px-5 py-3 animate-fade-in">
@@ -820,17 +853,26 @@ export function DebateRoom({
               {arenaAnalysis && !analyzing && (
                 <div className="mx-4 my-3 p-3 rounded-xl border animate-fade-in"
                   style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border)' }}>
-                  <div className="flex items-center gap-2 mb-2">
+                  {/* v40.5.5：审题报告可收缩——点标题栏收起/展开 */}
+                  <div className="flex items-center gap-2 mb-1 cursor-pointer select-none" onClick={() => setAnalysisCollapsed(c => !c)} role="button" aria-expanded={!analysisCollapsed} aria-label="切换审题报告显示">
                     <span className="text-sm font-bold" style={{ color: 'var(--color-accent)' }}>📋 审题报告</span>
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full"
                       style={{ background: arenaAnalysis.source === 'llm' ? 'var(--color-accent-light)' : 'var(--color-bg-secondary)', color: arenaAnalysis.source === 'llm' ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}>
                       {arenaAnalysis.source === 'llm' ? '🤖 AI 深度审题' : '⚙️ 本地快速审题'}
                     </span>
-                    <span className="ml-auto text-[9px]" style={{ color: 'var(--color-text-tertiary)' }}>全场共识 · 发言不得偏离</span>
+                    <span className="ml-auto flex items-center gap-1 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                      {analysisCollapsed ? '展开' : '收起'}
+                      {analysisCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                    </span>
                   </div>
-                  <div className="text-[11px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--color-text-secondary)' }}>
-                    {arenaAnalysis.text}
-                  </div>
+                  {!analysisCollapsed && (
+                    <>
+                      <div className="text-[10px] mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>全场共识 · 发言不得偏离</div>
+                      <div className="text-[11px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--color-text-secondary)' }}>
+                        {arenaAnalysis.text}
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -847,17 +889,66 @@ export function DebateRoom({
               {arenaResearch && !researching && (
                 <div className="mx-4 my-3 p-3 rounded-xl border animate-fade-in"
                   style={{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border)' }}>
-                  <div className="flex items-center gap-2 mb-2">
+                  {/* v40.6.1：资料包可收缩——点标题栏收起/展开 */}
+                  <div className="flex items-center gap-2 mb-1 cursor-pointer select-none" onClick={() => setResearchCollapsed(c => !c)} role="button" aria-expanded={!researchCollapsed} aria-label="切换资料包显示">
                     <span className="text-sm font-bold" style={{ color: 'var(--color-accent)' }}>📚 资料包</span>
                     <span className="text-[9px] px-1.5 py-0.5 rounded-full"
-                      style={{ background: arenaResearch.source === 'llm' ? 'var(--color-accent-light)' : 'var(--color-bg-secondary)', color: arenaResearch.source === 'llm' ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}>
-                      {arenaResearch.source === 'llm' ? '🤖 AI 深度检索' : '⚙️ 本地快速检索'}
+                      style={{ background: arenaResearch.source === 'llm' || arenaResearch.source === 'llm+zhihu' ? 'var(--color-accent-light)' : 'var(--color-bg-secondary)', color: arenaResearch.source === 'llm' || arenaResearch.source === 'llm+zhihu' ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}>
+                      {arenaResearch.source === 'llm+zhihu'
+                        ? '🤖 AI 深度 + 🔍 知乎真实资料'
+                        : arenaResearch.source === 'zhihu'
+                          ? '🔍 知乎真实资料'
+                          : arenaResearch.source === 'llm'
+                            ? '🤖 AI 深度检索'
+                            : '⚙️ 本地快速检索'}
                     </span>
-                    <span className="ml-auto text-[9px]" style={{ color: 'var(--color-text-tertiary)' }}>可引用 · 引用须标注来源</span>
+                    <span className="ml-auto flex items-center gap-1 text-[10px]" style={{ color: 'var(--color-text-tertiary)' }}>
+                      {researchCollapsed ? '展开' : '收起'}
+                      {researchCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                    </span>
                   </div>
+                  {!researchCollapsed && (
+                  <>
+                  <div className="text-[10px] mb-1.5" style={{ color: 'var(--color-text-tertiary)' }}>可引用 · 引用须标注来源</div>
                   <div className="text-[11px] leading-relaxed whitespace-pre-wrap" style={{ color: 'var(--color-text-secondary)' }}>
                     {arenaResearch.text}
                   </div>
+
+                  {/* v40.5.4：知乎真实资料（结构化列表 + 原文链接） */}
+                  {arenaResearch.zhihu && (
+                    <div className="mt-2 pt-2 border-t" style={{ borderColor: 'var(--color-border)' }}>
+                      {arenaResearch.zhihu.pro.length > 0 && (
+                        <div className="mt-1">
+                          <div className="text-[10px] font-bold mb-1" style={{ color: 'var(--color-accent)' }}>🟢 正方可用 · 知乎真实来源</div>
+                          {arenaResearch.zhihu.pro.slice(0, 3).map((h, i) => (
+                            <div key={i} className="text-[10px] leading-snug mb-0.5 flex items-start gap-1.5">
+                              <span style={{ color: 'var(--color-text-tertiary)' }}>·</span>
+                              <a href={h.url} target="_blank" rel="noreferrer" className="underline line-clamp-1"
+                                style={{ color: 'var(--color-text-secondary)' }}>
+                                {h.title}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {arenaResearch.zhihu.con.length > 0 && (
+                        <div className="mt-1">
+                          <div className="text-[10px] font-bold mb-1" style={{ color: '#ef4444' }}>🔴 反方可用 · 知乎真实来源</div>
+                          {arenaResearch.zhihu.con.slice(0, 3).map((h, i) => (
+                            <div key={i} className="text-[10px] leading-snug mb-0.5 flex items-start gap-1.5">
+                              <span style={{ color: 'var(--color-text-tertiary)' }}>·</span>
+                              <a href={h.url} target="_blank" rel="noreferrer" className="underline line-clamp-1"
+                                style={{ color: 'var(--color-text-secondary)' }}>
+                                {h.title}
+                              </a>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  </>
+                  )}
                 </div>
               )}
 

@@ -27,13 +27,16 @@ import { PathAdviceCard } from './PathAdviceCard'
 
 interface PersonaChatProps {
   onSaveSession: (topic: string, participants: string[], messages: Message[], mode: 'duel') => void
+  /** v40.6.5：来自知乎热榜等外部入口的待带入话题（App 切 tab 后经 props 传入，避免挂载前事件丢失） */
+  incomingTopic?: { topic: string; url?: string; source?: string } | null
+  onIncomingConsumed?: () => void
 }
 
 type ChatPhase = 'select' | 'setup' | 'chat'
 
 const STORAGE_KEY = 'mbti_persona_chat_v1'
 
-export function PersonaChat({ onSaveSession }: PersonaChatProps) {
+export function PersonaChat({ onSaveSession, incomingTopic, onIncomingConsumed }: PersonaChatProps) {
   const [phase, setPhase] = useState<ChatPhase>('select')
   const [personaId, setPersonaId] = useState<string>('')
   const [topic, setTopic] = useState('')
@@ -45,6 +48,18 @@ export function PersonaChat({ onSaveSession }: PersonaChatProps) {
   const [saved, setSaved] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // v40.6.5：知乎热榜话题跳转 1v1 —— 待带入话题（props 驱动）
+  const hotTopicRef = useRef<{ topic: string; url?: string; source?: string } | null>(null)
+  const incomingRef = useRef(incomingTopic)
+  incomingRef.current = incomingTopic
+  useEffect(() => {
+    const inc = incomingRef.current
+    if (inc?.topic && inc.topic !== hotTopicRef.current?.topic) {
+      hotTopicRef.current = inc
+      setTopic(inc.topic) // 预填话题（select/setup 阶段都可见）
+      onIncomingConsumed?.() // 通知 App 已消费，下次跳转同一话题仍可触发
+    }
+  }, [incomingTopic, phase])
 
   // v32 知识库状态（setup 页展示：已导入领域/块数，提醒配置知识库）
   const [kbStats, setKbStats] = useState<{ docCount: number; chunkCount: number } | null>(null)
@@ -143,14 +158,13 @@ export function PersonaChat({ onSaveSession }: PersonaChatProps) {
     setSaved(true)
   }, [onSaveSession, personaId, topic])
 
-  const handleSend = async () => {
-    const content = input.trim()
-    if (!content || typing) return
-
+  // v40.6.5：发送核心抽取（支持热榜话题进入时自动开场，复用同一条 AI 回复链路）
+  const sendContent = async (content: string) => {
+    if (!content.trim() || typing) return
     const userMsg: Message = {
       id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       typeId: 'me', typeName: '你', typeEmoji: '🧑', typeColor: 'var(--color-accent)',
-      content, timestamp: Date.now(), isUser: true,
+      content: content.trim(), timestamp: Date.now(), isUser: true,
     }
     const updated = [...messages, userMsg]
     setMessages(updated)
@@ -358,12 +372,31 @@ export function PersonaChat({ onSaveSession }: PersonaChatProps) {
     setTyping(false)
   }
 
+  // 输入框发送入口（v40.6.5：委托给 sendContent）
+  const handleSend = async () => {
+    const c = input.trim()
+    if (!c || typing) return
+    setInput('')
+    await sendContent(c)
+  }
+
   const handleStart = () => {
     if (!personaId || !topic.trim()) return
+    const hot = hotTopicRef.current
+    const carryTopic = topic.trim()
     setMessages([])
     setSaved(false)
     setPhase('chat')
     setTimeout(() => inputRef.current?.focus(), 100)
+
+    // v40.6.5：热榜话题进入 → 自动替用户把话题抛给 AI（AI 先细读再按人格回应）
+    if (hot && carryTopic) {
+      const opener = `想和你认真讨论这个${hot.source || '知乎'}热榜话题：${carryTopic}。${hot.url ? `\n（原文链接：${hot.url}）` : ''}\n你先把内容读完整，再按你自己的风格跟我说说：你怎么看这件事？`
+      setTimeout(async () => {
+        await new Promise<void>(r => setTimeout(r, 60)) // 等 phase='chat' commit 后发送
+        void sendContent(opener)
+      }, 150)
+    }
   }
 
   const handleReset = () => {

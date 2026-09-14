@@ -168,12 +168,25 @@ export function VoiceInput({ onResult, isRecording, setIsRecording }: VoiceInput
       )}
       {/* v40：错误提示（不再静默失败） */}
       {errorMsg && (
-        <div className="absolute bottom-full mb-2 left-0 w-56 px-3 py-2 rounded-lg text-[11px] leading-snug shadow-lg z-30"
+        <div className="absolute bottom-full mb-2 left-0 w-64 px-3 py-2 rounded-lg text-[11px] leading-snug shadow-lg z-30"
           style={{ background: 'var(--color-bg-secondary)', border: '1px solid #e57e7e55', color: 'var(--color-text)' }}>
           <span className="flex items-start gap-1.5">
             <AlertCircle size={13} className="flex-shrink-0 mt-0.5" style={{ color: '#e57e7e' }} />
             <span>{errorMsg}</span>
           </span>
+          {/* v40.6.7：http 下点按钮切到服务器 https 端口(3443) 解锁语音 */}
+          {typeof window !== 'undefined' && window.location.protocol === 'http:' && (
+            <button
+              onClick={() => {
+                const host = window.location.hostname
+                window.location.href = `https://${host}:3443${window.location.pathname}`
+              }}
+              className="mt-1.5 w-full px-2 py-1 rounded-md text-[11px] font-semibold text-white transition-all hover:opacity-90"
+              style={{ background: 'var(--color-accent)' }}
+            >
+              🔓 一键切换到 https(:3443) 解锁语音
+            </button>
+          )}
         </div>
       )}
     </div>

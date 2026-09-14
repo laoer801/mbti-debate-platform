@@ -12,6 +12,7 @@ import { TopicPicker } from './components/TopicPicker'
 import { FUIPageWrapper } from './components/FUIPageWrapper'
 import { mbtiProfiles } from './data/mbtiProfiles'
 import { personalitySystems } from './data/personalitySystem'
+import { sceneTemplates } from './data/scenes' // v40.6.7：场景→讨论模式映射（圆桌/脱口秀/街头=自由无正反）
 import { loadKnowledgeBase } from './utils/kbIntegration'
 import { initContentSync } from './utils/contentSync'
 // v38：每日新闻自动学习（启动时检查，超过 12 小时自动抓取）
@@ -86,7 +87,26 @@ function AppContent() {
   const [showLogin, setShowLogin] = useState(false)
   const [showTopicPicker, setShowTopicPicker] = useState(false)
   const [activePKRoomId, setActivePKRoomId] = useState<string | null>(null)
+  const [chatIncoming, setChatIncoming] = useState<{ topic: string; url?: string; source?: string } | null>(null) // v40.6.5：热榜→1v1 预填
   const prevTabRef = useRef<TabId>('hall')
+
+  // v40.6.9：全局按钮点击音效（设置页可关）
+  useEffect(() => {
+    import('./utils/sound').then(m => m.initGlobalSound())
+  }, [])
+
+  // v40.6.5：知乎热榜话题 → 跳转到 1v1 人格对话（话题经 props 带给 PersonaChat，避免挂载前事件丢失）
+  useEffect(() => {
+    const open1v1 = (e: Event) => {
+      const detail = (e as CustomEvent).detail
+      if (detail?.topic) {
+        setChatIncoming({ topic: detail.topic, url: detail.url, source: detail.source })
+        setActiveTab('chat')
+      }
+    }
+    window.addEventListener('mbti:open-1v1-topic', open1v1)
+    return () => window.removeEventListener('mbti:open-1v1-topic', open1v1)
+  }, [])
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -255,6 +275,11 @@ function AppContent() {
     setTopic(t)
     if (types.length > 0) setSelectedTypes(types)
     setSceneId(sId)
+    // v40.6.7：场景模式 → 对应讨论玩法（法律=对抗辩论；圆桌/脱口秀/街头=自由讨论无正反）
+    if (sId) {
+      const sc = sceneTemplates.find(s => s.id === sId)
+      if (sc?.mode) setDebateMode(sc.mode)
+    }
     setActiveTab('debate')
   }, [])
 
@@ -498,7 +523,7 @@ function AppContent() {
           {activeTab === 'chat' && (
             <Suspense fallback={<MiniSkeleton />}>
               <FUIPageWrapper variant="link" index="10" title="DIALOGUE" subtitle="1v1 对话" live>
-                <PersonaChat onSaveSession={saveDuelSession} />
+                <PersonaChat onSaveSession={saveDuelSession} incomingTopic={chatIncoming} onIncomingConsumed={() => setChatIncoming(null)} />
               </FUIPageWrapper>
             </Suspense>
           )}
