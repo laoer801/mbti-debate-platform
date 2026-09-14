@@ -429,3 +429,6 @@ zhihuAuthRoutes.get('/sync-log', authMiddleware, (req, res) => {
     .all(req.user.id)
   res.json({ log: rows })
 })
+
+// 导出内部工具给同进程其他路由复用（favorites 同步知乎时要用）
+export { loadDecryptedZc0 }

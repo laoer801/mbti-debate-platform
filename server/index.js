@@ -28,6 +28,7 @@ import { masterRoutes } from './routes/master.js'
 import { cloudKbRoutes } from './routes/cloudkb.js'
 import { zhihuRoutes } from './routes/zhihu.js'
 import { zhihuAuthRoutes } from './routes/zhihu-auth.js'
+import { favoritesRoutes } from './routes/favorites.js'
 // v40.4 新增：多人语音房 + 实力分匹配
 import { voiceRoomRoutes, ensureVoiceTablesSafe } from './routes/voice-room.js'
 import { ratingRoutes, ensureRatingTablesSafe } from './routes/rating.js'
@@ -109,6 +110,7 @@ app.use('/api/master', masterRoutes)
 app.use('/api/cloudkb', cloudKbRoutes)
 app.use('/api/zhihu', zhihuRoutes)
 app.use('/api/zhihu-auth', zhihuAuthRoutes)
+app.use('/api/favorites', favoritesRoutes)
 // v40.4 新增：多人语音房 + TrueSkill 匹配
 app.use('/api/voice-room', voiceRoomRoutes)
 app.use('/api/rating', ratingRoutes)

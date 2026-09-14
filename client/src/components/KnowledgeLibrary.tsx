@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react'
 import { mbtiProfiles } from '../data/mbtiProfiles'
 import { personalitySystems } from '../data/personalitySystem'
 import { personaKnowledge, personalityBooks, getBookQuotesByType, PersonalityBook } from '../data/personaKnowledge'
-import { BookOpen, Users, Briefcase, MessageCircle, TrendingUp, Brain, X, Plus, Trash2, BookPlus, GraduationCap, Database, Clapperboard, Newspaper, Sparkles, Flame, Search, ChevronDown, ChevronUp, MessageSquareText } from 'lucide-react'
+import { BookOpen, Users, Briefcase, MessageCircle, TrendingUp, Brain, X, Plus, Trash2, BookPlus, GraduationCap, Database, Clapperboard, Newspaper, Sparkles, Flame, Search, ChevronDown, ChevronUp, MessageSquareText, Bookmark } from 'lucide-react'
 import { getUserBooks, addUserBook, removeUserBook, pushBooksToCloud } from '../utils/learningStore'
 import type { UserBook } from '../utils/learningStore'
 import { useAuth } from '../hooks/useAuth'
@@ -19,9 +19,10 @@ import { ZhihuSourcesPanel } from './ZhihuSourcesPanel'
 import { ZhihuSearchPanel } from './ZhihuSearchPanel'
 import { ZhihuHotlistPanel } from './ZhihuHotlistPanel'
 import { ZhihuSyncButton } from './ZhihuSyncButton'
+import { FavoritesPanel } from './FavoritesPanel'
 import clsx from 'clsx'
 
-type LibraryMode = 'persona' | 'book' | 'domain' | 'video' | 'news' | 'zhihu'
+type LibraryMode = 'persona' | 'book' | 'domain' | 'video' | 'news' | 'zhihu' | 'favorites'
 
 export function KnowledgeLibrary() {
   const { isLoggedIn, token, user } = useAuth()
@@ -111,6 +112,13 @@ export function KnowledgeLibrary() {
             >
               <Sparkles size={14} /> 知乎中心
             </button>
+            <button
+              onClick={() => { setMode('favorites') }}
+              className={clsx('btn btn-sm transition-all', mode === 'favorites' ? 'btn-primary btn-sheen' : 'btn-ghost')}
+              aria-label="我的收藏"
+            >
+              <Bookmark size={14} /> 我的收藏
+            </button>
             {mode !== 'domain' && (
               <button
                 onClick={() => { setMode('book'); setAddingBook(true) }}
@@ -190,6 +198,8 @@ export function KnowledgeLibrary() {
           <NewsLibrary />
         ) : mode === 'zhihu' ? (
           <ZhihuCenter onImported={(c) => onZhihuImported(c)} />
+        ) : mode === 'favorites' ? (
+          <FavoritesPanel />
         ) : (
           <DomainKnowledgeBase />
         )}

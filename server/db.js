@@ -385,6 +385,35 @@ export async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_zhihu_sync_log_user ON zhihu_sync_log(user_id, synced_at DESC);
 
     -- ============================================================
+    -- v40.7 思辩星球云端收藏夹（"用户信息跟随账号"扩展）
+    -- 用户在 app 内收藏知乎内容（answer/article/question）或本地帖子
+    -- 跟随账号云端存储，跨设备同步；可打标签、加备注、一键同步到知乎收藏夹
+    -- 唯一约束：同一用户对同一 item_type+item_id 只能收藏一次
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS user_favorites (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      item_type TEXT NOT NULL,            -- answer / article / question / post
+      item_id TEXT NOT NULL,              -- 知乎 ID 或本地 posts.id
+      title TEXT NOT NULL,
+      summary TEXT DEFAULT '',
+      url TEXT DEFAULT '',
+      source TEXT DEFAULT 'zhihu',        -- zhihu / local
+      thumbnail TEXT DEFAULT '',
+      author TEXT DEFAULT '',
+      tags TEXT DEFAULT '[]',             -- JSON 字符串数组
+      notes TEXT DEFAULT '',
+      added_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      UNIQUE (user_id, item_type, item_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_favorites_user_added ON user_favorites(user_id, added_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_user_favorites_user_type ON user_favorites(user_id, item_type);
+
+    -- ============================================================
     -- v35 多人在线 + 后台管理（SaaS 化增量）
     -- 内容管理：辩论主题 / 人格提示词覆盖 / 使用统计
     -- ============================================================
