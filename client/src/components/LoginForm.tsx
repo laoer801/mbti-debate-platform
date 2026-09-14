@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { mbtiProfiles } from '../data/mbtiProfiles'
 import { Eye, EyeOff } from 'lucide-react'
+import { LoginZhihuPanel } from './LoginZhihuPanel'
 
 export function LoginForm({ onClose }: { onClose: () => void }) {
   const { login, register } = useAuth()
@@ -123,6 +124,8 @@ export function LoginForm({ onClose }: { onClose: () => void }) {
             {isRegister ? '去登录' : '去注册'}
           </button>
         </p>
+
+        <LoginZhihuPanel onClose={onClose} />
       </div>
     </div>
   )

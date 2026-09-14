@@ -347,6 +347,44 @@ export async function initDB() {
     CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_debate_sessions(user_id);
 
     -- ============================================================
+    -- v40.6 知乎账号绑定（cookie 注入方案）
+    -- 用户粘贴知乎 z_c0 cookie → 后端加密存储 → 用于调知乎 API（收藏夹同步/身份登录）
+    -- 一个用户对应一个知乎账号；解绑即清空记录
+    -- ============================================================
+
+    CREATE TABLE IF NOT EXISTS user_zhihu_bindings (
+      user_id TEXT PRIMARY KEY,
+      zhihu_user_id TEXT NOT NULL,
+      zhihu_username TEXT DEFAULT '',
+      zhihu_avatar TEXT DEFAULT '',
+      z_c0_ciphertext TEXT NOT NULL,    -- AES-256-GCM 加密后的 z_c0 cookie
+      z_c0_iv TEXT NOT NULL,           -- GCM IV（base64）
+      z_c0_tag TEXT NOT NULL,          -- GCM 认证标签（base64）
+      status TEXT DEFAULT 'active',     -- active / expired / revoked
+      bound_at INTEGER NOT NULL,
+      last_used_at INTEGER,
+      last_verify_at INTEGER,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_zhihu_bindings_zhihu ON user_zhihu_bindings(zhihu_user_id);
+
+    -- 同步任务流水：每次"同步到知乎收藏夹"留痕，便于排查失败
+    CREATE TABLE IF NOT EXISTS zhihu_sync_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      item_type TEXT NOT NULL,          -- answer / article / question
+      item_id TEXT NOT NULL,
+      target_favlist_id INTEGER NOT NULL,
+      status TEXT NOT NULL,             -- success / failed / skipped
+      message TEXT DEFAULT '',
+      synced_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_zhihu_sync_log_user ON zhihu_sync_log(user_id, synced_at DESC);
+
+    -- ============================================================
     -- v35 多人在线 + 后台管理（SaaS 化增量）
     -- 内容管理：辩论主题 / 人格提示词覆盖 / 使用统计
     -- ============================================================

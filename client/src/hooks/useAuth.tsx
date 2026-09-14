@@ -7,6 +7,7 @@ const API = API_BASE + '/api'
 interface AuthContextType extends AuthState {
   login: (username: string, password: string, rememberMe?: boolean) => Promise<void>
   register: (username: string, password: string, mbtiType?: string) => Promise<void>
+  zhihuLogin: (z_c0: string, rememberMe?: boolean) => Promise<void>
   logout: () => void
   updateProfile: (data: Partial<User>) => Promise<void>
 }
@@ -60,6 +61,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setState({ user: null, token: null, isLoggedIn: false })
   }, [])
 
+  // v40.6：用知乎 z_c0 cookie 直接登录（无本地账号则自动创建）
+  const zhihuLogin = useCallback(async (z_c0: string, rememberMe?: boolean) => {
+    const res = await fetch(`${API}/zhihu-auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ z_c0 }),
+    })
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error || '知乎登录失败') }
+    const data = await res.json()
+    if (rememberMe !== false) {
+      localStorage.setItem('mbti_token', data.token)
+    } else {
+      sessionStorage.setItem('mbti_token', data.token)
+    }
+    setState({ user: data.user, token: data.token, isLoggedIn: true })
+  }, [])
+
   const updateProfile = useCallback(async (data: Partial<User>) => {
     if (!state.token) return
     const res = await fetch(`${API}/auth/profile`, {
@@ -73,7 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [state.token])
 
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout, updateProfile }}>
+    <AuthContext.Provider value={{ ...state, login, register, zhihuLogin, logout, updateProfile }}>
       {children}
     </AuthContext.Provider>
   )

@@ -102,3 +102,7 @@ Thumbs.db
 # ============ 视频模块（暂不入库，保留本地） ============
 video-intro/
 /video-intro
+
+# 临时补丁包（云端同步生成的 .patch-*.tar.gz 等）
+.patch.tar.gz
+.patch-*.tar.gz

@@ -18,6 +18,7 @@ import { ZhihuSourcesPanel } from './ZhihuSourcesPanel'
 // v40.5.3：知乎全网搜索 + 热榜 UI 入口（之前写好了但没被任何地方 import，被 vite tree-shake 掉了）
 import { ZhihuSearchPanel } from './ZhihuSearchPanel'
 import { ZhihuHotlistPanel } from './ZhihuHotlistPanel'
+import { ZhihuSyncButton } from './ZhihuSyncButton'
 import clsx from 'clsx'
 
 type LibraryMode = 'persona' | 'book' | 'domain' | 'video' | 'news' | 'zhihu'
@@ -119,6 +120,9 @@ export function KnowledgeLibrary() {
                 <Plus size={14} /> 添加书籍
               </button>
             )}
+            {/* v40.6：绑定知乎后，可把内容一键同步到知乎收藏夹 */}
+            {mode === 'zhihu' && isLoggedIn && <ZhihuSyncButton label="同步到知乎" />}
+            {mode !== 'domain' && mode !== 'zhihu' && isLoggedIn && <ZhihuSyncButton label="同步到知乎" />}
             {/* 模式切换 */}
             <div className="flex rounded-lg p-1 gap-1" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)' }} role="tablist" aria-label="浏览方式">
               <button

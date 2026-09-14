@@ -1,10 +1,11 @@
 import { ThemeMode, FontSize } from '../types'
-import { Moon, Sun, SunMoon, Type, Eye, Accessibility, Monitor, Server, Check, RefreshCw, ChevronDown, Volume2, VolumeX, Brain, KeyRound, Wifi, Loader2 } from 'lucide-react'
+import { Moon, Sun, SunMoon, Type, Eye, Accessibility, Monitor, Server, Check, RefreshCw, ChevronDown, Volume2, VolumeX, Brain, KeyRound, Wifi, Loader2, Link2 } from 'lucide-react'
 import clsx from 'clsx'
 import { getServerUrl, setServerUrl } from '../config'
 import { isAiVoiceEnabled, setAiVoiceEnabled } from '../utils/voiceEngine'
 import { isSoundEnabled, setSoundEnabled } from '../utils/sound' // v40.6.9 界面音效开关
 import { getLLMConfig, setLLMConfig, isLLMConfigured, LLM_PROVIDERS, getArenaMode, setArenaMode, chatOnce } from '../utils/llmClient'
+import { ZhihuBindStatus } from './ZhihuBindStatus'
 import { useState } from 'react'
 
 interface SettingsPageProps {
@@ -169,6 +170,14 @@ export function SettingsPage({ theme, setTheme, fontSize, setFontSize }: Setting
             {soundOn ? '开' : '关'}
           </button>
         </div>
+      </section>
+
+      {/* v40.6 知乎账号绑定 */}
+      <section className="mb-8" aria-labelledby="zhihu-heading">
+        <h3 id="zhihu-heading" className="flex items-center gap-2 text-sm font-bold uppercase mb-4" style={{ color: 'var(--color-text-tertiary)' }}>
+          <Link2 size={16} /> 知乎账号绑定 <span className="text-[10px] font-normal opacity-60">(同步收藏夹)</span>
+        </h3>
+        <ZhihuBindStatus />
       </section>
 
       {/* 顶尖辩手模式（v25 LLM 多智能体辩论） */}
