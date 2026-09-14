@@ -282,4 +282,15 @@ router.post('/ai-seed', (req, res) => {
   res.json({ post })
 })
 
+// v40.6.9：删除自己的帖子（级联删除评论）
+router.delete('/:id', authMiddleware, (req, res) => {
+  const db = getDB()
+  const post = db.prepare('SELECT id, user_id FROM posts WHERE id = ?').get(req.params.id)
+  if (!post) return res.status(404).json({ error: '帖子不存在或已删除' })
+  if (post.user_id !== req.user.id) return res.status(403).json({ error: '只能删除自己发布的帖子' })
+  try { db.prepare('DELETE FROM comments WHERE post_id = ?').run(req.params.id) } catch { /* 无评论表时忽略 */ }
+  db.prepare('DELETE FROM posts WHERE id = ?').run(req.params.id)
+  res.json({ ok: true })
+})
+
 export { router as postRoutes }

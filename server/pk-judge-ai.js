@@ -109,14 +109,40 @@ export async function aiJudgeDebate(room, participants, moves) {
     { role: 'user', content: prompt },
   ])
 
-  // 提取首个 JSON 对象（鲁棒：兼容 ```json 包裹）
+  // 提取首个 JSON 对象（鲁棒：兼容 ```json 包裹、嵌套大括号、注释等 LLM 常见瑕疵）
   let parsed = null
-  const jsonMatch = raw.replace(/```json/gi, '').replace(/```/g, '').match(/\{[\s\S]*\}/)
-  if (jsonMatch) {
-    try { parsed = JSON.parse(jsonMatch[0]) } catch { /* fallthrough */ }
+  const cleaned = raw
+    .replace(/```json/gi, '')
+    .replace(/```/g, '')
+    .replace(/\/\/.*$/gm, '')      // 去掉行注释
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '') // 去掉控制字符
+  // 1) 直接尝试整段解析
+  try { parsed = JSON.parse(cleaned) } catch { /* fallthrough */ }
+  // 2) 提取首个平衡的 {...} 块
+  if (!parsed) {
+    let depth = 0, start = -1, end = -1, inStr = false, esc = false
+    for (let i = 0; i < cleaned.length; i++) {
+      const c = cleaned[i]
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue }
+      if (c === '"') { inStr = true; continue }
+      if (c === '{') { if (depth === 0) start = i; depth++ }
+      else if (c === '}') { depth--; if (depth === 0 && start >= 0) { end = i; break } }
+    }
+    if (start >= 0 && end > start) {
+      try { parsed = JSON.parse(cleaned.slice(start, end + 1)) } catch { /* fallthrough */ }
+    }
+  }
+  // 3) 用启发式正则提取最后一个 {...}（兜底）
+  if (!parsed) {
+    const m = cleaned.match(/\{[\s\S]*\}/g)
+    if (m) {
+      for (let i = m.length - 1; i >= 0; i--) {
+        try { parsed = JSON.parse(m[i]); break } catch { /* 继续 */ }
+      }
+    }
   }
   if (!parsed || !Array.isArray(parsed.results) || parsed.results.length === 0) {
-    throw new Error('裁判 JSON 解析失败')
+    throw new Error('裁判 JSON 解析失败（已尝试多种提取）')
   }
 
   const sideName = p => (p.side === 'pro' ? '正方' : '反方')

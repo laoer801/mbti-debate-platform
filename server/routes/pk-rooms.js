@@ -745,12 +745,27 @@ pkRoomRoutes.post('/quick-match', (req, res) => {
   const db = getDB()
   const { userId, topic } = req.body
 
-  // 查找等待中的公开房间
+  // v40.7.1 修复：废弃等待房会「吸人」
+  //   原实现 `ORDER BY created_at ASC` 且无新鲜度限制 → 优先挑最老的房，
+  //   而最老的房往往房主早已离线（实测匹配进 8 天前房主已走的空房，对面永远不说话）。
+  //   现改为：只取 TTL 内新建的等待房，且优先最新（更可能有人在场）；顺带回收过期残留房。
+  const MATCH_TTL_MS = 15 * 60 * 1000
+  const freshSince = Date.now() - MATCH_TTL_MS
+
+  try {
+    db.prepare(`
+      UPDATE pk_rooms SET current_phase = 'finished'
+      WHERE current_phase = 'waiting' AND is_public = 1 AND created_at < ?
+    `).run(freshSince)
+  } catch (e) { /* 回收失败不影响匹配 */ }
+
+  // 查找等待中的公开房间（仅在新鲜窗口内）
   let room = db.prepare(`
     SELECT * FROM pk_rooms
-    WHERE current_phase = 'waiting' AND is_public = 1 AND max_participants > (SELECT COUNT(*) FROM pk_participants WHERE room_id = pk_rooms.id)
-    ORDER BY created_at ASC LIMIT 1
-  `).get()
+    WHERE current_phase = 'waiting' AND is_public = 1 AND created_at > ?
+      AND max_participants > (SELECT COUNT(*) FROM pk_participants WHERE room_id = pk_rooms.id)
+    ORDER BY created_at DESC LIMIT 1
+  `).get(freshSince)
 
   if (!room) {
     // 无可用房间，创建新房间

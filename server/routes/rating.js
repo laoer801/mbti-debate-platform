@@ -95,7 +95,7 @@ function matchQuality(a, b) {
 // SQLite
 // ============================================================
 
-function ensureRatingTables(db) {
+export function ensureRatingTables(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS player_ratings (
       user_id TEXT PRIMARY KEY,
@@ -150,7 +150,9 @@ function safeJson(s) { try { return JSON.parse(s) } catch { return null } }
 // 路由
 // ============================================================
 
-ensureRatingTables(getDB())
+export function ensureRatingTablesSafe() {
+  ensureRatingTables(getDB())
+}
 
 ratingRoutes.post('/init', (req, res) => {
   const db = getDB()

@@ -110,7 +110,7 @@ function emitMicChange(io, roomId) {
 // SQLite 持久化（v40.4）
 // ============================================================
 
-function ensureVoiceTables(db) {
+export function ensureVoiceTables(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS voice_rooms (
       id TEXT PRIMARY KEY,
@@ -238,7 +238,9 @@ function autoNextSpeaker(io, roomId, reason) {
 // 路由
 // ============================================================
 
-ensureVoiceTables(getDB())
+export function ensureVoiceTablesSafe() {
+  ensureVoiceTables(getDB())
+}
 
 voiceRoomRoutes.post('/create', (req, res) => {
   const db = getDB()
