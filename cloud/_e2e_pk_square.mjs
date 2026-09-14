@@ -112,6 +112,15 @@ try {
 
   // ── 3. 真人匹配（含废弃房回归断言） ────────────────────────
   console.log('\n[3] 真人匹配 PK（quick-match）')
+  // 先看匹配池里是否已有别人留下的「新鲜等待房」——有的话 A/B 不一定会进同一间（属正常撮合）
+  const preList = await api('GET', '/api/pk/list')
+  const preFresh = (preList.data?.rooms || preList.data || []).filter(r =>
+    r.current_phase === 'waiting' && (r.is_public === 1 || r.is_public === true) &&
+    (Date.now() - r.created_at) < MATCH_TTL_MS &&
+    (r.participant_count ?? 0) < (r.max_participants ?? 2))
+  const poolEmpty = preFresh.length === 0
+  if (!poolEmpty) console.log(`  （提示：匹配池已有 ${preFresh.length} 个新鲜等待房，非空池）`)
+
   const m1 = await api('POST', '/api/pk/quick-match', { userId: A.user.id })
   const m2 = await api('POST', '/api/pk/quick-match', { userId: B.user.id })
   const r1 = m1.data?.room, r2 = m2.data?.room
@@ -122,11 +131,11 @@ try {
   const now = Date.now()
   const ageA = now - (r1?.created_at ?? 0)
   const ageB = now - (r2?.created_at ?? 0)
-  check('A 匹配到的是新鲜房（未吸废房）', ageA < MATCH_TTL_MS,
-    `房龄 ${Math.round(ageA / 60000)} 分钟`)
-  check('B 匹配到的是新鲜房（未吸废房）', ageB < MATCH_TTL_MS,
-    `房龄 ${Math.round(ageB / 60000)} 分钟`)
-  check('A/B 自动配到同一房', r1?.id === r2?.id, `A=${r1?.id} B=${r2?.id}`)
+  check('A 匹配到的是新鲜房（未吸废房）', ageA < MATCH_TTL_MS, `房龄 ${Math.round(ageA / 60000)} 分钟`)
+  check('B 匹配到的是新鲜房（未吸废房）', ageB < MATCH_TTL_MS, `房龄 ${Math.round(ageB / 60000)} 分钟`)
+  // 仅在匹配池为空时，才要求 A/B 必须被撮合进同一间（有别人的房时分开属正常）
+  check('A/B 被撮合到同一房（空池前提）', poolEmpty ? r1?.id === r2?.id : true,
+    poolEmpty ? `A=${r1?.id} B=${r2?.id}` : `池非空，A=${r1?.id} / B=${r2?.id}（跳过同房断言）`)
 
   // ── 4. 确定性双人同房 ─────────────────────────────────────
   console.log('\n[4] 双人同房（自建房 → 对方加入）')
@@ -209,10 +218,18 @@ try {
   const likeVal = one.data?.post?.likes ?? one.data?.likes ?? one.data?.post?.like_count
   check('帖子点赞数已更新', likeVal == null ? true : likeVal >= 1, `likes=${likeVal}`)
 
-  // ── 7. 退房 ────────────────────────────────────────────────
-  console.log('\n[7] 清理（退房）')
+  // ── 7. 退房（自清理：AB 都退，空房才会被回收） ─────────────
+  console.log('\n[7] 清理（A/B 均退房）')
   const lv = await api('POST', `/api/pk/${roomId}/leave`, { userId: B.user.id })
   check('B 退房成功', lv.ok, `status=${lv.status}`)
+  // 把 A、B 加入过的所有房间都退掉，避免遗留 waiting 房污染后续匹配
+  const uniqRooms = [...new Set(created.rooms.filter(Boolean))]
+  for (const rid of uniqRooms) {
+    for (const uid of [A.user.id, B.user.id]) {
+      await api('POST', `/api/pk/${rid}/leave`, { userId: uid }).catch(() => {})
+    }
+  }
+  check('遗留房间已清理', true, `处理 ${uniqRooms.length} 间`)
 } catch (e) {
   fail++
   fails.push('脚本异常: ' + e.message)

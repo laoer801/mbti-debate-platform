@@ -6,6 +6,8 @@ import { DEFAULT_PET_SPRITES, getPetWithBonus, settlePetBattle } from './pets.js
 import { AI_LEVELS, AI_LEVEL_KEYS, learnFromUserText, generateAIReply } from '../ai-opponent.js'
 // v40.6.4：PK 客观 AI 裁判（维度引证打分 + 专业报告）；失败回退启发式
 import { aiJudgeDebate } from '../pk-judge-ai.js'
+// v40.8：PK 自动模式（阶段到点自动推进 + 自由辩论 AI 自循环 + 到点自动裁判出总结）
+import { scheduleAutoAdvance, clearAutoModeTimers, registerMoveWriter, runAutoJudge } from '../pk-auto-mode.js'
 
 export const pkRoomRoutes = Router()
 
@@ -457,6 +459,8 @@ pkRoomRoutes.post('/:roomId/leave', (req, res) => {
 
   if (room) {
     if (remaining.cnt < 2 && room.current_phase !== 'finished') {
+      // v40.8：有人离开 → 停掉服务端自动推进/自循环，避免空房继续跑 AI
+      clearAutoModeTimers(req.params.roomId)
       // 参与者不足2人 → 重置回等待阶段，防止对局卡死
       db.prepare(`UPDATE pk_rooms SET current_phase = 'waiting', phase_started_at = NULL, phase_duration = 0 WHERE id = ?`)
         .run(req.params.roomId)
@@ -548,6 +552,17 @@ pkRoomRoutes.post('/:roomId/phase', (req, res) => {
     if (battleStates) {
       io.to(`pk-room-${req.params.roomId}`).emit('battle-init', battleStates)
     }
+  }
+
+  // v40.8：AI 房交给服务端自动推进（到点必走下一阶段 → 自循环 → 自动裁判），
+  //       人类房仍由客户端计时器推进——避免双端同时推进时客户端 POST 撞 400「阶段顺序错误」
+  if (room.ai_mode && duration > 0) {
+    scheduleAutoAdvance(req.app, req.params.roomId, phase, duration * 1000)
+  }
+  // v40.8：客户端可能比服务端定时器先切到 judging —— 这里兜一手，保证裁判一定会跑
+  //        （triggerJudgeAndSummary 内部有幂等 + 并发守卫，两条路径都到也不会重复判）
+  if (room.ai_mode && phase === 'judging') {
+    runAutoJudge(req.app, req.params.roomId).catch((e) => console.warn('[PK-AUTO] runAutoJudge:', e.message))
   }
 
   res.json({ phase, startedAt: now, duration, battleStates })
@@ -952,4 +967,17 @@ pkRoomRoutes.get('/history/:userId', (req, res) => {
   `).all(req.params.userId)
 
   res.json(history)
+})
+
+// ============================================================
+// v40.8 挂载：把本模块的 addPKMove 注入 pk-auto-mode，
+// 让「AI 自动发言」与「真人发言」走完全相同的链路
+// （new-move 广播 + 服务器权威宠物结算 + 完整字段），避免两套实现漂移。
+// ============================================================
+registerMoveWriter((app, roomId, userId, content) => {
+  const db = getDB()
+  const room = db.prepare('SELECT * FROM pk_rooms WHERE id = ?').get(roomId)
+  if (!room) return null
+  const r = addPKMove(app, db, room, userId, content, 'speech')
+  return r && r.ok ? r.move : null
 })

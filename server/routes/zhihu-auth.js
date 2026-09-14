@@ -94,7 +94,7 @@ zhihuAuthRoutes.post('/bind', authMiddleware, async (req, res) => {
     if (e.code === 'ZHIHU_AUTH_INVALID') {
       return res.status(401).json({ error: '知乎 cookie 无效或已过期，请重新复制', detail: e.detail })
     }
-    return res.status(502).json({ error: '知乎验证失败：' + (e.message || '��知错误') })
+    return res.status(502).json({ error: '知乎验证失败：' + (e.message || '未知错误') })
   }
 
   let payload

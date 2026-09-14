@@ -44,6 +44,20 @@ export function clearAllAutoModeTimers() {
 }
 
 // ============================================================
+// 0) 依赖注入：落库 + 广播由 pk-rooms.js 提供
+// ============================================================
+// 本模块自带的 addPKMove 是简化版（只发 pk-move，缺 username/side/phase，且不算宠物伤害），
+// 而前端只监听 new-move。为避免"入库但界面不刷新"，这里改为复用 pk-rooms 的 addPKMove，
+// 保证 AI 自动发言与真人发言走**同一条链路**（new-move + pet-battle + 完整字段）。
+let _moveWriter = null
+export function registerMoveWriter(fn) { _moveWriter = fn }
+
+function writeMove(app, room, userId, content) {
+  if (_moveWriter) return _moveWriter(app, room.id, userId, content)
+  return addPKMove(app, getDB(), room, userId, content, 'speech')
+}
+
+// ============================================================
 // 1) 阶段到点自动推进
 // ============================================================
 export function scheduleAutoAdvance(app, roomId, phase, durationMs) {
@@ -74,6 +88,19 @@ async function autoAdvance(app, roomId, fromPhase, toPhase) {
   const room = db.prepare('SELECT * FROM pk_rooms WHERE id = ?').get(roomId)
   if (!room) return
   if (room.current_phase !== fromPhase) return // 已被手动切走
+
+  // 安全阀：人类已全部离开（关页面没走 /leave 的场景）→ 停表 + 收尾，
+  // 避免空房继续自动推进、白烧 LLM 额度
+  const humanLeft = db.prepare(`SELECT COUNT(*) AS c FROM pk_participants WHERE room_id = ? AND user_id NOT LIKE 'ai\\_\\_%' ESCAPE '\\'`).get(roomId).c
+  if (humanLeft === 0) {
+    clearAutoModeTimers(roomId)
+    if (room.current_phase !== 'finished') {
+      db.prepare('UPDATE pk_rooms SET current_phase = ? WHERE id = ?').run('finished', roomId)
+      app.get('io')?.to(`pk-room-${roomId}`).emit('phase-changed', { phase: 'finished', startedAt: Date.now(), duration: 0 })
+    }
+    console.log(`[PK-AUTO] ${roomId} 已无人参与，停止自动推进并收尾`)
+    return
+  }
 
   // judging 阶段自动收尾：直接触发评分
   if (toPhase === 'judging') {
@@ -174,7 +201,7 @@ function heuristicJudge(room, participants, moves) {
     results.push({
       userId: u.user_id, username: u.username, total,
       scores: { logic: total, evidence: total - 5, eloquence: total, rebuttal: total - 8, etiquette: total + 5 },
-      comment: `启发式评估（AI 裁判失败兜底）：共发言 ${u.count} 条，累计 ${u.totalChars} ��`,
+      comment: `启发式评估（AI 裁判失败兜底）：共发言 ${u.count} 条，累计 ${u.totalChars} 字`,
     })
     if (total > maxTotal) { maxTotal = total; winner = uid }
   }
@@ -185,12 +212,30 @@ function heuristicJudge(room, participants, moves) {
   }
 }
 
+const judgingInFlight = new Set()
+
 async function triggerJudgeAndSummary(app, roomId) {
+  // 并发守卫：客户端手动切 judging 与服务端自动推进可能几乎同时到达，
+  // 只靠"查库是否已有结果"挡不住竞态，这里再加一层内存锁
+  if (judgingInFlight.has(roomId)) return
+  judgingInFlight.add(roomId)
+  try { await doJudgeAndSummary(app, roomId) } finally { judgingInFlight.delete(roomId) }
+}
+
+/** 供路由层显式调用：客户端先切到 judging 时兜住，保证裁判一定会跑 */
+export async function runAutoJudge(app, roomId) {
+  const db = getDB()
+  const room = db.prepare('SELECT * FROM pk_rooms WHERE id = ?').get(roomId)
+  if (!room || !room.ai_mode || room.current_phase !== 'judging') return
+  await triggerJudgeAndSummary(app, roomId)
+}
+
+async function doJudgeAndSummary(app, roomId) {
   const db = getDB()
   // 幂等
   const exist = db.prepare('SELECT 1 FROM pk_judge_results WHERE room_id = ?').get(roomId)
   if (exist) {
-    console.log(`[PK-AUTO] ${roomId} ��裁判，跳过`)
+    console.log(`[PK-AUTO] ${roomId} 已有裁判，跳过`)
     return
   }
   try {
@@ -246,7 +291,7 @@ async function generateDebateSummary(room, participants, moves, scores) {
 不要 emoji，不要 Markdown，直接用「【】」分段。`
   // 取最近 14 条发言（与裁判一致，避开 token/credit 触发的 401）
   const lines = moves.slice(-14).map((m, i) => `${i + 1}. [${(m.username || m.user_id || '').slice(0, 12)}] ${(m.content || '').slice(0, 60)}`).join('\n')
-  const userMsg = `��题：${room.topic}\n\n交锋节选（共 ${moves.length} 条）：\n${lines}\n\n胜方：${scores.winner || '未分'}。`
+  const userMsg = `辩题：${room.topic}\n\n交锋节选（共 ${moves.length} 条）：\n${lines}\n\n胜方：${scores.winner || '未分'}。`
   // 两次尝试：第一次 25s，失败/为空再试 25s（不同 prompt）
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
@@ -254,7 +299,13 @@ async function generateDebateSummary(room, participants, moves, scores) {
       const tm = setTimeout(() => ctrl.abort(), 25000)
       const res = await fetch(ZH_BASE_CHAT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ZHIHU_ACCESS_SECRET}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${ZHIHU_ACCESS_SECRET}`,
+          // 必带：知乎直答要求时间戳头做防重放，缺了会直接 401
+          // （裁判 zhihuJudgeOnce 一直带着，这里之前漏了 → 总结永远 401 只能走兜底模板）
+          'X-Request-Timestamp': `${Math.floor(Date.now() / 1000)}`,
+        },
         body: JSON.stringify({ model: ZH_MODEL_FAST, messages: [{ role: 'user', content: sysMsg + '\n\n' + userMsg }], stream: false }),
         signal: ctrl.signal,
       })
@@ -332,7 +383,7 @@ export async function safeAIReply(app, roomId, opts = {}) {
   for (let i = 0; i < sentences.length; i++) {
     const cur = db.prepare('SELECT * FROM pk_rooms WHERE id = ?').get(roomId)
     if (!cur || !SPEAK.includes(cur.current_phase)) break
-    addPKMove(app, db, cur, aiId, sentences[i], 'speech')
+    writeMove(app, cur, aiId, sentences[i])
     if (i < sentences.length - 1) await new Promise(r => setTimeout(r, 1100))
   }
   db.prepare('UPDATE pk_rooms SET turn_user_id = ? WHERE id = ?').run(humanId, roomId)
@@ -365,7 +416,9 @@ function splitSentences(text) {
   return out.length ? out : [raw]
 }
 
-// addPKMove 复制自 pk-rooms.js（避免循环依赖；列名严格匹配 pk_moves schema）
+// addPKMove 兜底实现（pk-rooms 未注册 moveWriter 时才走这里）
+// ⚠️ 事件名必须是 new-move（前端只监听 new-move，不是 pk-move），字段与 pk-rooms 保持一致，
+//    否则 AI 自动发言会"落库了但界面不刷新"。
 import { v4 as uuidv4 } from 'uuid'
 function addPKMove(app, db, room, userId, content, type) {
   const id = uuidv4()
@@ -377,7 +430,19 @@ function addPKMove(app, db, room, userId, content, type) {
     console.warn(`[PK-AUTO] addPKMove 失败: ${e.message}`)
     return null
   }
+  const u = db.prepare('SELECT username, avatar, mbti_type FROM users WHERE id = ?').get(userId)
+  const part = db.prepare('SELECT side FROM pk_participants WHERE room_id = ? AND user_id = ?').get(room.id, userId)
   const io = app?.get?.('io')
-  if (io) io.to(`pk-room-${room.id}`).emit('pk-move', { id, roomId: room.id, userId, content, moveType: type || 'speech', createdAt: now })
+  if (io) io.to(`pk-room-${room.id}`).emit('new-move', {
+    id, roomId: room.id, userId,
+    username: u?.username || '神秘辩友',
+    avatar: u?.avatar || '',
+    mbtiType: u?.mbti_type || null,
+    content,
+    moveType: type || 'speech',
+    side: part?.side || null,
+    phase: room.current_phase || '',
+    createdAt: now,
+  })
   return id
 }
